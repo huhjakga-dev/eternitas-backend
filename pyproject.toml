@@ -1,0 +1,15 @@
+[project]
+name = "eternitas"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+    "apscheduler>=3.11.2",
+    "dotenv>=0.9.9",
+    "fastapi[standard]>=0.128.8",
+    "psycopg2>=2.9.11",
+    "requests>=2.32.5",
+    "ruff>=0.15.7",
+    "sqlalchemy>=2.0.48",
+]
