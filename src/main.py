@@ -1,43 +1,67 @@
+"""
+eternitas 메인 애플리케이션.
+
+스케줄러 작업:
+  - collect_today_works : 매일 9:11, 10:11 → 오늘 [작업] 게시글을 WorkSession으로 등록
+  - work_polling_worker : 3분 간격 → 활성 세션 댓글 감시 및 상태 처리
+"""
+
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
-from precursors.router import router as precursor_router
-from precursors.service import PrecursorService
-from database import connect_db, disconnect_db
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
-app = FastAPI(
-    title="eternitas (열차커) 운영 및 러너 참여 컨텐츠 보조 서버",
-    description="""
-    밴드 커뮤니티 'ETERNITAS: The 60mph Orbit'의 운영에 필요한 기능들을 제공합니다. 해당 커뮤니티에서 이뤄지는 모든 데이터 수집은 커뮤니티 운영에만 사용되며, 커뮤니티 엔딩 후에는 러너(밴드 멤버)들의 의사에 따라 파기 혹은 러너에게 전달(단, 본인이 생성한 데이터에 한해)됩니다!
-    """,
-)
-app.include_router(precursor_router)
+from src.database import SessionLocal
+from src.works.service import WorkService
+from src.works.worker import work_polling_worker
+from src.works.router import router as works_router
 
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    db_conn = connect_db()
+# ------------------------------------------------------------------ #
+# 스케줄러 래퍼 (DB 세션 생성 → 서비스 호출 → 세션 닫기)
+# ------------------------------------------------------------------ #
 
-    start_scheduler()
-    with Session(bind=db_conn) as session:
-        create_missing_previous_day_reports(db_session=session)
-    yield
-    disconnect_db()
-    stop_scheduler()
-
-
-def scheduled_polling():
-    # 여기서 DB 세션을 직접 열어서 폴링 실행
+async def scheduled_collect():
     db = SessionLocal()
     try:
-        service = PrecursorService(db)
-        # async 함수이므로 적절한 비동기 루프 처리 필요
-        import asyncio
-
-        asyncio.run(service.poll_and_update())
+        service = WorkService(db)
+        await service.collect_today_works()
     finally:
         db.close()
 
 
-# 5분 간격으로 폴링 실행 (운영 시간 체크 로직 추가 가능)
-scheduler.add_job(scheduled_polling, "interval", minutes=5)
-scheduler.start()
+# ------------------------------------------------------------------ #
+# 앱 생명주기: 시작 시 스케줄러 ON, 종료 시 OFF
+# ------------------------------------------------------------------ #
+
+scheduler = AsyncIOScheduler(timezone="Asia/Seoul")
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # 오늘 작업 수집: 매일 9:11, 10:11
+    scheduler.add_job(scheduled_collect, "cron", hour="9,10", minute=11)
+    # 폴링 워커: 3분 간격
+    scheduler.add_job(work_polling_worker, "interval", minutes=3)
+    scheduler.start()
+
+    yield
+
+    scheduler.shutdown()
+
+
+# ------------------------------------------------------------------ #
+# FastAPI 앱
+# ------------------------------------------------------------------ #
+
+app = FastAPI(
+    title="eternitas",
+    description="밴드 커뮤니티 'ETERNITAS: The 60mph Orbit' 운영 보조 서버",
+    lifespan=lifespan,
+)
+
+app.include_router(works_router)
+
+
+@app.get("/health")
+def health():
+    return {"status": "ok"}

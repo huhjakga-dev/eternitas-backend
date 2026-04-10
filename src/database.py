@@ -1,34 +1,25 @@
-import os
 from sqlalchemy import create_engine
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker
-from dotenv import load_dotenv
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import declarative_base, sessionmaker, Session
 from typing import Annotated
 from fastapi import Depends
+from src.config import settings
 
-# .env 파일에서 환경 변수 로드
-load_dotenv()
-
-
-def connect_db():
-    global db_conn
-
-    # Supabase 연결 정보 (환경 변수에서 가져옴)
-    SQLALCHEMY_DATABASE_URL = os.getenv("DATABASE_URL")
-    create_engine(
-        SQLALCHEMY_DATABASE_URL, pool_size=10, max_overflow=20, pool_pre_ping=True
-    )
-    return db_conn
+engine = create_engine(
+    settings.DATABASE_URL,
+    pool_size=10,
+    max_overflow=20,
+    pool_pre_ping=True,
+)
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+Base = declarative_base()
 
 
-# 종속성 주입(DI)용 함수: API 핸들러에서 DB 세션을 사용할 때 호출
 def get_db():
-    with Session(bind=db_conn) as session:
-        try:
-            yield session
-        finally:
-            session.close()
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
 
 
 DbSession = Annotated[Session, Depends(get_db)]
