@@ -1,9 +1,18 @@
 from enum import Enum
 
+
+class CargoGrade(str, Enum):
+    STANDARD = "standard"
+    NON_STANDARD = "non_standard"
+    OVERLOAD = "overload"
+    FIXED = "fixed"
+
+
 class DamageType(str, Enum):
     HP = "hp"
     SP = "sp"
     BOTH = "both"
+
 
 class WorkStatus(str, Enum):
     WAITING_PRECURSOR = "waiting_precursor"

@@ -1,93 +1,88 @@
-from sqlalchemy import (
-    Column, Integer, String, Boolean, DateTime, Float, ForeignKey, JSON
-)
+import uuid
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, Float, ForeignKey, JSON, Enum as SQLEnum
+from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.sql import func
 from src.database import Base
+from src.common.schema import CargoGrade
 
 
 class Runner(Base):
     __tablename__ = "runners"
-    id = Column(Integer, primary_key=True)
-    band_user_id = Column(String, nullable=False)  # 네이버 밴드 유저 키
-    user_type = Column(String)  # 어떤 러너인지 (승무원/화물/운영진 등)
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    band_user_id = Column(String)
+    user_type = Column(String)  # crew / cargo / admin
     created_at = Column(DateTime, server_default=func.now())
 
 
 class Crew(Base):
     __tablename__ = "crews"
-    id = Column(Integer, primary_key=True)
-    runner_id = Column(Integer, ForeignKey("runners.id"), nullable=False, unique=True)
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    runner_id = Column(UUID(as_uuid=True), ForeignKey("runners.id"), nullable=False, unique=True)
     crew_name = Column(String, nullable=False)
-    health = Column(Integer, default=0)
-    mentality = Column(Integer, default=0)
-    strength = Column(Integer, default=0)
-    inteligence = Column(Integer, default=0)
-    luckiness = Column(Integer)
-    str = Column(Integer, default=0)
-    int = Column(Integer, default=0)
-    luc = Column(Integer, default=0)
-    mechanization_lv = Column(Integer, default=0)  # 0~5단계
+    health = Column(Integer, default=1)         # 1~10, hp = health * 5
+    mentality = Column(Integer, default=1)      # 1~10, sp = mentality * 5
+    strength = Column(Integer, default=1)       # 1~10, 작업 스탯: STR
+    inteligence = Column(Integer, default=1)    # 1~10, 작업 스탯: INT (DB 오타 그대로)
+    luckiness = Column(Integer, default=1)      # 1~10, 작업 스탯: LUC
+    mechanization_lv = Column(Integer, default=0)
     is_dead = Column(Boolean, default=False)
-    is_active = Column(Boolean, default=False)
-    death_time = Column(DateTime)  # 부활 시간 계산용
-    hp = Column(Integer, default=0)
-    sp = Column(Integer, default=0)
+    is_active = Column(Boolean, default=True)
+    death_time = Column(DateTime)
+    hp = Column(Integer, default=5)             # 현재 HP (health*5로 초기화)
+    sp = Column(Integer, default=5)             # 현재 SP (mentality*5로 초기화)
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
 
 
 class Cargo(Base):
     __tablename__ = "cargos"
-    id = Column(Integer, primary_key=True)
-    runner_id = Column(Integer, ForeignKey("runners.id"), nullable=False, unique=True)
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    runner_id = Column(UUID(as_uuid=True), ForeignKey("runners.id"), unique=True)
     cargo_name = Column(String, nullable=False)
-    grade = Column(String)  # Standard, Non-Standard, Overload, Fixed
-    health = Column(Integer, default=0)
-    mentality = Column(Integer, default=0)
-    strength = Column(Integer, default=0)
-    inteligence = Column(Integer, default=0)
-    cause = Column(Integer, default=0)
-    success_count = Column(Integer, default=0)
-    failure_count = Column(Integer, default=0)
-    observation_rate = Column(Integer, default=0)  # 20, 60, 100
+    grade = Column(SQLEnum(CargoGrade, values_callable=lambda x: [e.value for e in x]), nullable=False)
+    health = Column(Float, default=0)
+    mentality = Column(Float, default=0)
+    strength = Column(Float, default=0)
+    inteligence = Column(Float, default=0)
+    cause = Column(Float, default=0)
+    success_count = Column(Float, default=0)
+    failure_count = Column(Float, default=0)
+    observation_rate = Column(Float, default=0)
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
 
 
 class CargoPattern(Base):
     __tablename__ = "cargo_patterns"
-    id = Column(Integer, primary_key=True)
-    cargo_id = Column(Integer, ForeignKey("cargos.id"), nullable=False, unique=True)
-    pattern_name = Column(String, nullable=False)  # 패턴 명칭 (예: 증기 폭주)
-    description = Column(String)  # 패턴 설명 (지문용)
-
-    # 보정치 (정답 시 적용)
-    buff_stat_json = Column(JSON, default=dict)  # 작업 시 승무원 스탯 가산치
-    damage_reduction = Column(Float, default=0.0)  # 받는 데미지 감소치
-
-    # 페널티 (실패/대실패 시 적용)
-    debuff_stat_json = Column(JSON, default=dict)  # 작업 시 승무원 스탯 감산치
-    damage_increase = Column(Float, default=0.0)  # 가하는 데미지 증가치
-    instant_kill_rate = Column(Float)  # 대실패 시 즉사 판정 확률
-
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    cargo_id = Column(UUID(as_uuid=True), ForeignKey("cargos.id"), unique=True)
+    pattern_name = Column(String)
+    description = Column(String)  # 전조 선언 시 시스템이 게시하는 댓글 내용
+    answer = Column(String)       # 정답 대응 (LLM 판정 기준)
+    buff_stat_json = Column(JSON)
+    buff_damage_reduction = Column(Float, default=0.0)
+    debuff_stat_json = Column(JSON)
+    debuff_demage_increase = Column(Float, default=0.0)
+    instant_kill_rate = Column(Float)
     created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime)
 
 
 class Equipment(Base):
     __tablename__ = "equipments"
-    id = Column(Integer, primary_key=True)
-    name = Column(String, nullable=False)
-    type = Column(String)  # Filter, Weapon, Item
-    effects = Column(JSON)  # 보정 스탯 및 특수 효과 (양수/음수/복수지정 가능)
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    name = Column(String)
+    equipment_type = Column(String)
+    effects = Column(JSON)
     description = Column(String)
     created_at = Column(DateTime, server_default=func.now())
 
 
 class CrewEquipment(Base):
     __tablename__ = "crew_equipments"
-    id = Column(Integer, primary_key=True)
-    crew_id = Column(Integer, ForeignKey("crews.id"), nullable=False)
-    equipment_id = Column(Integer, ForeignKey("equipments.id"), nullable=False)
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    crew_id = Column(UUID(as_uuid=True), ForeignKey("crews.id"))
+    equipment_id = Column(UUID(as_uuid=True), ForeignKey("equipments.id"), nullable=False)
     is_equipped = Column(Boolean, default=True)
     acquired_at = Column(DateTime, server_default=func.now())
     created_at = Column(DateTime, server_default=func.now())

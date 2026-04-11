@@ -14,11 +14,13 @@ from src.database import SessionLocal
 from src.works.service import WorkService
 from src.works.worker import work_polling_worker
 from src.works.router import router as works_router
+from src.runners.router import router as runners_router
 
 
 # ------------------------------------------------------------------ #
 # 스케줄러 래퍼 (DB 세션 생성 → 서비스 호출 → 세션 닫기)
 # ------------------------------------------------------------------ #
+
 
 async def scheduled_collect():
     db = SessionLocal()
@@ -59,6 +61,7 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+app.include_router(runners_router)
 app.include_router(works_router)
 
 
