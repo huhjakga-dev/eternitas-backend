@@ -1,5 +1,5 @@
 import uuid
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, Float, ForeignKey, JSON, Enum as SQLEnum
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, Float, ForeignKey, JSON, Enum as SQLEnum, Computed
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.sql import func
 from src.database import Base
@@ -28,8 +28,18 @@ class Crew(Base):
     is_dead = Column(Boolean, default=False)
     is_active = Column(Boolean, default=True)
     death_time = Column(DateTime)
-    hp = Column(Integer, default=5)             # 현재 HP (health*5로 초기화)
-    sp = Column(Integer, default=5)             # 현재 SP (mentality*5로 초기화)
+    max_hp = Column(Integer, Computed(
+        "ROUND((health * 5) * CASE mechanization_lv "
+        "WHEN 2 THEN 1.1 WHEN 3 THEN 1.3 WHEN 4 THEN 1.5 ELSE 1.0 END)",
+        persisted=True
+    ))
+    max_sp = Column(Integer, Computed(
+        "ROUND((mentality * 5) * CASE mechanization_lv "
+        "WHEN 2 THEN 0.8 WHEN 3 THEN 0.6 WHEN 4 THEN 0.5 ELSE 1.0 END)",
+        persisted=True
+    ))
+    hp = Column(Integer)                        # 현재 HP, 트리거로 초기화 및 클램핑
+    sp = Column(Integer)                        # 현재 SP, 트리거로 초기화 및 클램핑
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
 

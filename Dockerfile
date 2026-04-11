@@ -1,4 +1,4 @@
-FROM python:3.11-slim
+FROM python:3.12-slim
 
 # uv 바이너리만 복사 (가벼운 설치)
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv

@@ -57,7 +57,12 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="eternitas",
-    description="밴드 커뮤니티 'ETERNITAS: The 60mph Orbit' 운영 보조 서버",
+    description="""
+    밴드 커뮤니티 'ETERNITAS: The 60mph Orbit' 운영 보조 서버
+    운영에 사용되는 모든 러너(밴드 멤버)들의 정보는 
+    [커뮤니티 내에서의 이벤트 진행]에만 사용되며, 5월 9일 커뮤니티 엔딩 날짜 이후 모두 파기됩니다!
+    해당 페이지는 api docs 문서로, ui 아직 안 만들어서 게시했습니다. 테스트 엔드포인트들을 사용해보셔도 문제는 없지만 제가 데이터 지우기 귀찮아집니다.
+    """,
     lifespan=lifespan,
 )
 
