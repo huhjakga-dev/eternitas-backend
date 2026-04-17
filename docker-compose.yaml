@@ -1,3 +1,5 @@
+name: eternitas-api
+
 services:
   api:
     build: .
@@ -16,22 +18,3 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     restart: unless-stopped
-
-  dashboard:
-    build: .
-    command: >
-      uv run streamlit run crew_dashboard.py
-      --server.port 8501
-      --server.address 0.0.0.0
-      --server.headless true
-    ports:
-      - "8501:8501"
-    env_file:
-      - .env
-    volumes:
-      - ./src:/app/src
-      - ./crew_dashboard.py:/app/crew_dashboard.py
-    dns:
-      - 8.8.8.8
-    restart: unless-stopped
-

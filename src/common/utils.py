@@ -5,6 +5,13 @@ from google import genai
 from src.config import settings  # BAND_ACCESS_TOKEN, BAND_KEY 등이 저장된 설정
 
 
+def get_band_client():
+    """BAND_ACCESS_TOKEN과 BAND_KEY가 모두 설정된 경우에만 BandClient 반환, 아니면 None."""
+    if settings.BAND_ACCESS_TOKEN and settings.BAND_KEY:
+        return BandClient()
+    return None
+
+
 class BandClient:
     BASE_URL = settings.BAND_BASE_URL
 

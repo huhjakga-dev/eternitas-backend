@@ -3,14 +3,14 @@ from sqlalchemy import Column, Integer, String, Boolean, DateTime, Float, Foreig
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.sql import func
 from src.database import Base
-from src.common.schema import CargoGrade
+from src.common.schema import CargoGrade, CrewType
 
 
 class Runner(Base):
     __tablename__ = "runners"
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     band_user_id = Column(String)
-    user_type = Column(String)  # crew / cargo / admin
+    user_type = Column(String)           # crew / cargo / admin
     created_at = Column(DateTime, server_default=func.now())
 
 
@@ -24,6 +24,7 @@ class Crew(Base):
     strength = Column(Integer, default=1)       # 1~10, 작업 스탯: STR
     inteligence = Column(Integer, default=1)    # 1~10, 작업 스탯: INT (DB 오타 그대로)
     luckiness = Column(Integer, default=1)      # 1~10, 작업 스탯: LUC
+    crew_type = Column(SQLEnum(CrewType, values_callable=lambda x: [e.value for e in x]), default=CrewType.VOLUNTEER, nullable=False)
     mechanization_lv = Column(Integer, default=0)
     is_dead = Column(Boolean, default=False)
     is_active = Column(Boolean, default=True)
@@ -40,6 +41,7 @@ class Crew(Base):
     ))
     hp = Column(Integer)                        # 현재 HP, 트리거로 초기화 및 클램핑
     sp = Column(Integer)                        # 현재 SP, 트리거로 초기화 및 클램핑
+    token = Column(Integer, default=0)          # 재화 (토큰)
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
 
@@ -49,6 +51,7 @@ class Cargo(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     runner_id = Column(UUID(as_uuid=True), ForeignKey("runners.id"), unique=True)
     cargo_name = Column(String, nullable=False)
+    cargo_code = Column(String)
     grade = Column(SQLEnum(CargoGrade, values_callable=lambda x: [e.value for e in x]), nullable=False)
     health = Column(Float, default=0)
     mentality = Column(Float, default=0)
@@ -58,6 +61,7 @@ class Cargo(Base):
     success_count = Column(Float, default=0)
     failure_count = Column(Float, default=0)
     observation_rate = Column(Float, default=0)
+    adapt_point = Column(Integer, default=0)    # 재화 (적응 시스템)
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
 

@@ -10,11 +10,13 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
+from datetime import datetime, timezone, timedelta
 from src.database import SessionLocal
 from src.works.service import WorkService
 from src.works.worker import work_polling_worker
 from src.works.router import router as works_router
 from src.runners.router import router as runners_router
+from src.runners.models import Crew
 
 
 # ------------------------------------------------------------------ #
@@ -27,6 +29,32 @@ async def scheduled_collect():
     try:
         service = WorkService(db)
         await service.collect_today_works()
+    finally:
+        db.close()
+
+
+async def scheduled_resurrect():
+    """사망 후 1시간 경과한 승무원 부활: HP 풀 회복, 기계화 단계 +1, is_dead=False, death_time=None"""
+    db = SessionLocal()
+    try:
+        threshold = datetime.now(timezone.utc) - timedelta(hours=1)
+        dead_crews = (
+            db.query(Crew)
+            .filter(Crew.is_dead == True, Crew.death_time <= threshold)
+            .all()
+        )
+        for crew in dead_crews:
+            crew.is_dead = False
+            crew.death_time = None
+            crew.mechanization_lv = min((crew.mechanization_lv or 0) + 1, 4)
+            # max_hp는 DB Computed 컬럼이라 직접 참조 불가 → 기계화 단계 반영 후 계산
+            mech_hp_mult = {0: 1.0, 1: 1.0, 2: 1.1, 3: 1.3, 4: 1.5}
+            mech_sp_mult = {0: 1.0, 1: 1.0, 2: 0.8, 3: 0.6, 4: 0.5}
+            new_lv = crew.mechanization_lv
+            crew.hp = round((crew.health or 1) * 5 * mech_hp_mult[new_lv])
+            crew.sp = round((crew.mentality or 1) * 5 * mech_sp_mult[new_lv])
+        if dead_crews:
+            db.commit()
     finally:
         db.close()
 
@@ -44,6 +72,8 @@ async def lifespan(app: FastAPI):
     scheduler.add_job(scheduled_collect, "cron", hour="9,10", minute=11)
     # 폴링 워커: 3분 간격
     scheduler.add_job(work_polling_worker, "interval", minutes=3)
+    # 부활 체크: 1분 간격
+    scheduler.add_job(scheduled_resurrect, "interval", minutes=1)
     scheduler.start()
 
     yield

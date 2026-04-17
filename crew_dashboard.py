@@ -37,6 +37,8 @@ def fetch_crews(db):
             c.health, c.mentality, c.strength, c.inteligence, c.luckiness,
             c.mechanization_lv,
             c.hp, c.sp,
+            c.max_hp, c.max_sp,
+            c.token,
             c.is_dead, c.is_active
         FROM crews c
         ORDER BY c.crew_name
@@ -67,7 +69,7 @@ def fetch_equipments_by_crew(db, crew_ids: list[str]):
 MECH = {0: "0", 1: "Lv.1", 2: "Lv.2", 3: "Lv.3", 4: "Lv.4"}
 
 def status_label(is_dead, is_active):
-    if is_dead:    return "💀 전사"
+    if is_dead:    return "???"
     if not is_active: return "😴 비활성"
     return "✅ 활성"
 
@@ -80,6 +82,7 @@ def main():
         layout="wide",
     )
 
+    st.image("eternitas_banner.png", use_container_width=True)
     st.title("🚂 ETERNITAS — 승무원 현황판")
 
     col_r, col_f, col_v = st.columns([1, 2, 2])
@@ -88,7 +91,7 @@ def main():
             st.cache_resource.clear()
             st.rerun()
     with col_f:
-        show_inactive = st.checkbox("비활성/전사 포함", value=False)
+        show_inactive = st.checkbox("비활성/??? 포함", value=False)
     with col_v:
         view = st.radio("보기 방식", ["📋 테이블", "🃏 카드"], horizontal=True)
 
@@ -117,8 +120,8 @@ def main():
 
         rows = []
         for c in visible:
-            max_hp = (c.health or 1) * 5
-            max_sp = (c.mentality or 1) * 5
+            max_hp = c.max_hp or 1
+            max_sp = c.max_sp or 1
             eqs    = eq_map.get(c.id, [])
             eq_str = ", ".join(
                 f"{'🟢' if e.is_equipped else '⚫'}{e.name}"
@@ -137,6 +140,7 @@ def main():
                 "지력":       c.inteligence or 0,
                 "행운":       c.luckiness or 0,
                 "기계화":     MECH.get(c.mechanization_lv or 0, "—"),
+                "토큰":       c.token or 0,
                 "장비":       eq_str,
             })
 
@@ -161,6 +165,7 @@ def main():
                 "지력":    st.column_config.NumberColumn("📚지력",   width="small"),
                 "행운":    st.column_config.NumberColumn("🍀행운",   width="small"),
                 "기계화":  st.column_config.TextColumn("🔧기계화",  width="small"),
+                "토큰":    st.column_config.NumberColumn("토큰",    width="small"),
                 "장비":    st.column_config.TextColumn("장비",      width="medium"),
             },
             height=min(80 + len(rows) * 35, 700),
@@ -172,7 +177,7 @@ def main():
         m1.metric("전체 승무원",  len(crews))
         m2.metric("활성",         sum(1 for c in crews if not c.is_dead and c.is_active))
         m3.metric("비활성",       sum(1 for c in crews if not c.is_dead and not c.is_active))
-        m4.metric("전사",         sum(1 for c in crews if c.is_dead))
+        m4.metric("???",         sum(1 for c in crews if c.is_dead))
 
     # ── 카드 뷰 ──────────────────────────────────────────────────────────────
     else:
@@ -193,8 +198,8 @@ def main():
 
         cols = st.columns(4)
         for idx, c in enumerate(visible):
-            max_hp = (c.health or 1) * 5
-            max_sp = (c.mentality or 1) * 5
+            max_hp = c.max_hp or 1
+            max_sp = c.max_sp or 1
             eqs    = eq_map.get(c.id, [])
             badge_color = "#ef4444" if c.is_dead else ("#6b7280" if not c.is_active else "#22c55e")
 
@@ -215,7 +220,10 @@ def main():
     <b style="font-size:1rem;color:#f1f5f9;">{c.crew_name}</b>
     <span style="font-size:0.72rem;color:{badge_color};">{status_label(c.is_dead, c.is_active)}</span>
   </div>
-  <div style="font-size:0.72rem;color:#64748b;margin-bottom:8px;">🔧 {MECH.get(c.mechanization_lv or 0, '—')}</div>
+  <div style="display:flex;justify-content:space-between;font-size:0.72rem;color:#64748b;margin-bottom:8px;">
+    <span>🔧 {MECH.get(c.mechanization_lv or 0, '—')}</span>
+    <span style="color:#fbbf24;">토큰 {c.token or 0}</span>
+  </div>
   {bar(c.hp or 0, max_hp, '#ef4444')}
   {bar(c.sp or 0, max_sp, '#3b82f6')}
   <div style="margin-top:8px;font-size:0.72rem;color:#9ca3af;">

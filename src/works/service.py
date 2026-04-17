@@ -1,17 +1,17 @@
 import random
-from datetime import date, datetime
+from datetime import date, datetime, timezone, timedelta
 from sqlalchemy.orm import Session
 
 from .models import WorkSession, PrecursorLog, WorkLog, WorkSessionCrew
 from src.runners.models import Crew, Runner, CargoPattern
 from src.common.schema import WorkStatus, DamageType
-from src.common.utils import BandClient, OllamaClient, GeminiClient
+from src.common.utils import get_band_client, OllamaClient, GeminiClient
 
 
 class WorkService:
     def __init__(self, db: Session):
         self.db = db
-        self.band = BandClient()
+        self.band = get_band_client()  # 키 없으면 None
         self.llm = OllamaClient()
         self.gemini = GeminiClient()
 
@@ -102,7 +102,8 @@ class WorkService:
         else:
             notice = "⚠️ 전조 현상이 감지되었습니다. 승무원은 [대응]하십시오."
 
-        await self.band.post_comment(session.post_key, notice)
+        if self.band:
+            await self.band.post_comment(session.post_key, notice)
 
     # ------------------------------------------------------------------ #
     # [Polling] 승무원 대응 처리 (PRECURSOR_ACTIVE 상태)
@@ -150,11 +151,15 @@ class WorkService:
         if result == "success":
             msg = "✅ 대응 성공! 작업 보정치가 적용됩니다."
         elif result == "critical_fail":
-            msg = "💀 대실패! 중대 패널티가 적용됩니다."
+            if crew:
+                self._kill_crew(crew)
+                self.db.commit()
+            msg = "💀 대실패! 승무원이 사망했습니다. 1시간 후 부활합니다."
         else:
             msg = "❌ 대응 실패! 패널티가 적용됩니다."
 
-        await self.band.post_comment(session.post_key, msg)
+        if self.band:
+            await self.band.post_comment(session.post_key, msg)
 
     # ------------------------------------------------------------------ #
     # [Polling] 본 작업 처리 (MAIN_WORK_READY 상태)
@@ -174,14 +179,18 @@ class WorkService:
         if not crew:
             return
 
-        # 세션 참여 승무원 목록 조회 (데미지 분산용)
+        # 세션 참여 승무원 전체 로드 (데미지 분산 적용 대상)
         session_crew_ids = [
             sc.crew_id for sc in
             self.db.query(WorkSessionCrew)
             .filter(WorkSessionCrew.session_id == session.id)
             .all()
         ]
-        participant_count = max(len(session_crew_ids), 1)
+        participants: list[Crew] = (
+            self.db.query(Crew).filter(Crew.id.in_(session_crew_ids)).all()
+            if session_crew_ids else [crew]
+        )
+        participant_count = max(len(participants), 1)
 
         modifiers = session.precursor_effect or {}
         total_summary = []
@@ -208,19 +217,24 @@ class WorkService:
                     )
                 else:
                     raw_dmg = (cargo_roll - crew_roll) * 2
-                    # 데미지를 참여 승무원 수로 분산 (작업자 본인 포함)
                     shared_dmg = max(1, raw_dmg // participant_count)
                     dmg_total += shared_dmg
-                    crew.hp -= shared_dmg
                     split_note = f" (전체 {raw_dmg} → {participant_count}명 분산)" if participant_count > 1 else ""
                     turn_logs.append(
-                        f"第{i}턴: 실패 (승무원 {crew_roll} vs 화물 {cargo_roll}) → HP -{shared_dmg}{split_note}"
+                        f"第{i}턴: 실패 (승무원 {crew_roll} vs 화물 {cargo_roll}) → 전원 HP -{shared_dmg}{split_note}"
                     )
 
-                    if crew.hp <= 0:
-                        crew.hp = 0
+                    # 모든 참여자에게 데미지 적용
+                    dead_names = []
+                    for p in participants:
+                        p.hp = max(0, (p.hp or 0) - shared_dmg)
+                        if p.hp <= 0:
+                            self._kill_crew(p)
+                            dead_names.append(p.crew_name)
+
+                    if dead_names:
                         turn_logs.append(
-                            "🚨 승무원의 HP가 0이 되었습니다. 작업이 강제 중단됩니다."
+                            f"🚨 사망: {', '.join(dead_names)} — 1시간 후 부활합니다."
                         )
                         interrupted = True
                         break
@@ -246,7 +260,8 @@ class WorkService:
 
         self.db.commit()
 
-        await self.band.post_comment(session.post_key, "\n\n".join(total_summary))
+        if self.band:
+            await self.band.post_comment(session.post_key, "\n\n".join(total_summary))
 
     # ------------------------------------------------------------------ #
     # 내부 헬퍼 메서드 (LLM 연동)
@@ -385,3 +400,9 @@ class WorkService:
         if not runner:
             return None
         return self.db.query(Crew).filter(Crew.runner_id == runner.id).first()
+
+    def _kill_crew(self, crew: Crew):
+        """HP 0 이하 시 사망 처리: is_dead=True, death_time 기록, HP=0"""
+        crew.hp = 0
+        crew.is_dead = True
+        crew.death_time = datetime.now(timezone.utc)

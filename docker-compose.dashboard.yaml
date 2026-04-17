@@ -1,0 +1,62 @@
+name: eternitas-dashboard
+
+services:
+  dashboard:
+    build: .
+    command: >
+      uv run streamlit run crew_dashboard.py
+      --server.port 8501
+      --server.address 0.0.0.0
+      --server.headless true
+    ports:
+      - "8501:8501"
+    env_file:
+      - .env
+    volumes:
+      - ./src:/app/src
+      - ./crew_dashboard.py:/app/crew_dashboard.py
+      - /Users/heojeongyun/Desktop/media/eternitas/eternitas_banner.png:/app/eternitas_banner.png
+    dns:
+      - 8.8.8.8
+    restart: unless-stopped
+
+  registration:
+    build: .
+    command: >
+      uv run streamlit run registration_dashboard.py
+      --server.port 8503
+      --server.address 0.0.0.0
+      --server.headless true
+    ports:
+      - "8503:8503"
+    env_file:
+      - .env
+    volumes:
+      - ./src:/app/src
+      - ./registration_dashboard.py:/app/registration_dashboard.py
+      - ./pages:/app/pages
+      - /Users/heojeongyun/Desktop/media/eternitas/eternitas_banner.png:/app/eternitas_banner.png
+    dns:
+      - 8.8.8.8
+    restart: unless-stopped
+
+  admin:
+    build: .
+    command: >
+      uv run streamlit run admin_dashboard.py
+      --server.port 8502
+      --server.address 0.0.0.0
+      --server.headless true
+    ports:
+      - "8502:8502"
+    env_file:
+      - .env
+    environment:
+      - ADMIN_API_BASE=http://host.docker.internal:8000
+    volumes:
+      - ./src:/app/src
+      - ./admin_dashboard.py:/app/admin_dashboard.py
+      - /Users/heojeongyun/Desktop/media/eternitas/eternitas_banner.png:/app/eternitas_banner.png
+    dns:
+      - 8.8.8.8
+    restart: unless-stopped

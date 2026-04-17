@@ -5,7 +5,7 @@ from annotated_types import Ge, Le
 from typing import Annotated
 
 from src.database import DbSession
-from src.common.schema import CargoGrade
+from src.common.schema import CargoGrade, CrewType
 from .models import Runner, Crew, Cargo, CargoPattern
 
 router = APIRouter(prefix="/runners", tags=["Runners"])
@@ -20,6 +20,7 @@ Stat = Annotated[int, Ge(1), Le(10)]  # 1~10 정수
 class CreateCrewRunner(BaseModel):
     band_user_id: str
     crew_name: str
+    crew_type: CrewType = CrewType.VOLUNTEER
     # 5개 스탯: 각 1~10, 합계 25 이하
     # hp = health * 5, sp = mentality * 5 (자동 계산)
     health: Stat = 1
@@ -40,6 +41,7 @@ class CreateCrewRunner(BaseModel):
 class CreateCargoRunner(BaseModel):
     band_user_id: str
     cargo_name: str
+    cargo_code: Optional[str] = None
     grade: CargoGrade
     # 5개 스탯: 각 1~10, 합계 25 이하
     health: Stat = 1
@@ -102,13 +104,14 @@ async def create_crew_runner(body: CreateCrewRunner, db: DbSession):
     crew = Crew(
         runner_id=runner.id,
         crew_name=body.crew_name,
+        crew_type=body.crew_type,
         health=body.health,
         mentality=body.mentality,
         strength=body.strength,
         inteligence=body.inteligence,
         luckiness=body.luckiness,
-        hp=body.health * 5,       # health * 5
-        sp=body.mentality * 5,    # mentality * 5
+        hp=body.health * 5,
+        sp=body.mentality * 5,
         mechanization_lv=body.mechanization_lv,
     )
     db.add(crew)
@@ -141,6 +144,7 @@ async def create_cargo_runner(body: CreateCargoRunner, db: DbSession):
     cargo = Cargo(
         runner_id=runner.id,
         cargo_name=body.cargo_name,
+        cargo_code=body.cargo_code,
         grade=body.grade,
         health=body.health,
         mentality=body.mentality,
