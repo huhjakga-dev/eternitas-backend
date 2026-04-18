@@ -3,10 +3,13 @@ from sqlalchemy import Column, Integer, String, Boolean, DateTime, Float, Foreig
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.sql import func
 from src.database import Base
-from src.common.schema import CargoGrade, CrewType
+from src.common.schema import CargoGrade, CrewType, DamageType
 
 
 class Runner(Base):
+    """
+    러너 테이블
+    """
     __tablename__ = "runners"
     id         = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_type  = Column(String)           # crew / cargo
@@ -14,6 +17,9 @@ class Runner(Base):
 
 
 class Crew(Base):
+    """
+    승무원 테이블
+    """
     __tablename__ = "crews"
     id               = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     runner_id        = Column(UUID(as_uuid=True), ForeignKey("runners.id"), nullable=False, unique=True)
@@ -38,9 +44,9 @@ class Crew(Base):
     hp         = Column(Integer)
     sp         = Column(Integer)
     token      = Column(Integer, default=0)
-    is_dead    = Column(Boolean, default=False)
+    is_dead    = Column(Boolean, default=False) # 사망 여부, True가 되면 한시간 뒤에 부활
     is_active  = Column(Boolean, default=True)
-    death_time = Column(DateTime)
+    death_time = Column(DateTime) # 사망시 해당 필드로 부활 시간 측정
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
 
@@ -52,6 +58,7 @@ class Cargo(Base):
     cargo_name       = Column(String, nullable=False)
     cargo_code       = Column(String)
     grade            = Column(SQLEnum(CargoGrade, values_callable=lambda x: [e.value for e in x]), nullable=False)
+    damage_type      = Column(SQLEnum(DamageType, values_callable=lambda x: [e.value for e in x]), default=DamageType.HP, nullable=False)
     health           = Column(Float, default=0)
     mentality        = Column(Float, default=0)
     strength         = Column(Float, default=0)
@@ -59,8 +66,9 @@ class Cargo(Base):
     cause            = Column(Float, default=0)
     success_count    = Column(Float, default=0)
     failure_count    = Column(Float, default=0)
-    observation_rate = Column(Float, default=0)
-    adapt_point      = Column(Integer, default=0)
+    observation_rate  = Column(Float, default=0)   # 관측률
+    adapt_point       = Column(Integer, default=0) # 적응 데이터
+    damage_multiplier = Column(Float, default=0.1, nullable=False)
     created_at       = Column(DateTime, server_default=func.now())
     updated_at       = Column(DateTime, server_default=func.now(), onupdate=func.now())
 
@@ -71,12 +79,12 @@ class CargoPattern(Base):
     cargo_id               = Column(UUID(as_uuid=True), ForeignKey("cargos.id"), unique=True)
     pattern_name           = Column(String)
     description            = Column(String)
-    answer                 = Column(String)
+    answer                 = Column(String) # 패턴 정답
     buff_stat_json         = Column(JSON)
     buff_damage_reduction  = Column(Float, default=0.0)
     debuff_stat_json       = Column(JSON)
     debuff_demage_increase = Column(Float, default=0.0)
-    instant_kill_rate      = Column(Float)
+    instant_kill           = Column(Boolean, default=False, nullable=False)
     created_at             = Column(DateTime, server_default=func.now())
     updated_at             = Column(DateTime)
 

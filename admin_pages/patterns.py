@@ -26,7 +26,7 @@ debuff_str  = dc3.number_input("근력 디버프",   value=0.0, step=0.1, key="d
 debuff_int  = dc4.number_input("지력 디버프",   value=0.0, step=0.1, key="debuff_int")
 debuff_luck = dc5.number_input("행운 디버프",   value=0.0, step=0.1, key="debuff_luck")
 debuff_dmg_inc = st.number_input("데미지 증가율 (0~1, 양수로 입력)", 0.0, 1.0, 0.0, step=0.05, key="debuff_dmg_inc")
-instant_kill = st.number_input("대실패 즉사 확률 (0~1)", 0.0, 1.0, 0.0, step=0.05, key="instant_kill")
+instant_kill = st.checkbox("대실패 즉사 기믹 ON", value=False, key="instant_kill")
 
 if st.button("패턴 등록/수정"):
     status, data = api("post", "/runners/cargo/pattern", json={
@@ -36,7 +36,7 @@ if st.button("패턴 등록/수정"):
         "buff_damage_reduction": buff_dmg_red,
         "debuff_stat_json": {"health": debuff_hp, "mentality": debuff_sp, "strength": debuff_str, "inteligence": debuff_int, "luckiness": debuff_luck},
         "debuff_demage_increase": debuff_dmg_inc,
-        "instant_kill_rate": instant_kill if instant_kill > 0 else None,
+        "instant_kill": instant_kill,
     })
     if status in (200, 201):
         st.success(data)

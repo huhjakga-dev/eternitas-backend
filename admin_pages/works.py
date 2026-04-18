@@ -39,12 +39,11 @@ with tabs[0]:
 with tabs[1]:
     st.subheader("세션 생성")
     cargo_id  = st.text_input("cargo_id (UUID)", key="new_cargo_id")
-    post_key  = st.text_input("post_key", value="manual_post_key", key="new_post_key")
     crew_raw  = st.text_area("참여 승무원 UUID (줄바꿈 구분, 최대 3명)", key="new_crew_ids")
 
     if st.button("세션 생성"):
         crew_ids = [x.strip() for x in crew_raw.strip().splitlines() if x.strip()]
-        status, data = api("post", "/works/sessions", json={"cargo_id": cargo_id, "post_key": post_key, "crew_ids": crew_ids})
+        status, data = api("post", "/works/sessions", json={"cargo_id": cargo_id, "crew_ids": crew_ids})
         st.success(data) if status in (200, 201) else st.error(data)
 
 # ── 전조 선언 ─────────────────────────────────────────────────────────────────

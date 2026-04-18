@@ -5,7 +5,6 @@ from src.common.schema import PrecursorResult
 
 class CreateSession(BaseModel):
     cargo_id:  str
-    post_key:  str          = "manual_post_key"
     crew_ids:  list[str]    = []
 
 

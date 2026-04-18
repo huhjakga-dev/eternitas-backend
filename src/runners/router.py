@@ -1,10 +1,18 @@
 import uuid as _uuid
 from fastapi import APIRouter, HTTPException
 from src.database import DbSession
+from src.common.schema import CargoGrade
 from .models import Runner, Crew, Cargo, CargoPattern
 from .schema import CreateCrewRunner, CreateCargoRunner, CreateCargoPattern
 
 router = APIRouter(prefix="/runners", tags=["Runners"])
+
+_GRADE_MULT = {
+    CargoGrade.STANDARD:     0.1,
+    CargoGrade.NON_STANDARD: 0.2,
+    CargoGrade.OVERLOAD:     0.3,
+    CargoGrade.FIXED:        0.4,
+}
 
 
 @router.post("/crew")
@@ -46,9 +54,11 @@ async def create_cargo_runner(body: CreateCargoRunner, db: DbSession) -> dict:
 
     cargo = Cargo(
         runner_id=runner.id,
-        cargo_name=body.cargo_name, cargo_code=body.cargo_code, grade=body.grade,
+        cargo_name=body.cargo_name, cargo_code=body.cargo_code,
+        grade=body.grade, damage_type=body.damage_type,
         health=body.health, mentality=body.mentality,
         strength=body.strength, inteligence=body.inteligence, cause=body.cause,
+        damage_multiplier=_GRADE_MULT.get(body.grade, 0.1),
     )
     db.add(cargo)
     db.commit()
@@ -83,7 +93,7 @@ async def upsert_cargo_pattern(body: CreateCargoPattern, db: DbSession) -> dict:
         existing.buff_damage_reduction  = body.buff_damage_reduction
         existing.debuff_stat_json       = debuff
         existing.debuff_demage_increase = body.debuff_demage_increase
-        existing.instant_kill_rate      = body.instant_kill_rate
+        existing.instant_kill           = body.instant_kill
         db.commit()
         return {"pattern_id": str(existing.id), "cargo_id": str(existing.cargo_id), "pattern_name": existing.pattern_name, "updated": True}
 
@@ -92,7 +102,7 @@ async def upsert_cargo_pattern(body: CreateCargoPattern, db: DbSession) -> dict:
         pattern_name=body.pattern_name, description=body.description, answer=body.answer,
         buff_stat_json=buff, buff_damage_reduction=body.buff_damage_reduction,
         debuff_stat_json=debuff, debuff_demage_increase=body.debuff_demage_increase,
-        instant_kill_rate=body.instant_kill_rate,
+        instant_kill=body.instant_kill,
     )
     db.add(pattern)
     db.commit()
@@ -116,7 +126,7 @@ async def get_cargo_pattern(cargo_id: str, db: DbSession) -> dict:
         "pattern_name": pattern.pattern_name, "description": pattern.description,
         "buff_stat_json": pattern.buff_stat_json, "buff_damage_reduction": pattern.buff_damage_reduction,
         "debuff_stat_json": pattern.debuff_stat_json, "debuff_demage_increase": pattern.debuff_demage_increase,
-        "instant_kill_rate": pattern.instant_kill_rate,
+        "instant_kill": pattern.instant_kill,
     }
 
 

@@ -12,17 +12,12 @@ router = APIRouter(prefix="/works", tags=["Works"])
 @router.post("/sessions")
 async def create_session(body: CreateSession, db: DbSession) -> dict:
     """
-    작업 세션 생성. post_key 중복이면 기존 세션 반환.
-    참여 승무원은 최대 3명.
+    작업 세션 생성, 참여 승무원은 최대 3명.
     """
     if len(body.crew_ids) > 3:
         raise HTTPException(status_code=422, detail="참여 승무원은 최대 3명입니다.")
 
-    exists = db.query(WorkSession).filter(WorkSession.post_key == body.post_key).first()
-    if exists:
-        return {"id": str(exists.id), "status": exists.status, "message": "이미 존재함"}
-
-    session = WorkSession(post_key=body.post_key, cargo_id=uuid.UUID(body.cargo_id), status=WorkStatus.WAITING_PRECURSOR)
+    session = WorkSession(cargo_id=uuid.UUID(body.cargo_id), status=WorkStatus.WAITING_PRECURSOR)
     db.add(session)
     db.flush()
 
@@ -30,14 +25,14 @@ async def create_session(body: CreateSession, db: DbSession) -> dict:
         db.add(WorkSessionCrew(session_id=session.id, crew_id=uuid.UUID(cid)))
 
     db.commit()
-    return {"id": str(session.id), "post_key": session.post_key, "status": session.status, "crew_ids": body.crew_ids}
+    return {"id": str(session.id), "status": session.status, "crew_ids": body.crew_ids}
 
 
 @router.get("/sessions")
 async def list_sessions(db: DbSession) -> list[dict]:
     """WorkSession 목록 조회 (최신 20개)."""
     return [
-        {"id": str(s.id), "post_key": s.post_key, "cargo_id": str(s.cargo_id), "status": s.status, "precursor_effect": s.precursor_effect, "created_at": s.created_at}
+        {"id": str(s.id), "cargo_id": str(s.cargo_id), "status": s.status, "precursor_effect": s.precursor_effect, "created_at": s.created_at}
         for s in db.query(WorkSession).order_by(WorkSession.created_at.desc()).limit(20).all()
     ]
 

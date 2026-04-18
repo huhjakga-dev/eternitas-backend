@@ -1,15 +1,14 @@
 import uuid
-from sqlalchemy import Column, String, ForeignKey, JSON, Boolean, DateTime, Integer
+from sqlalchemy import Column, String, ForeignKey, JSON, Boolean, DateTime, Integer, Enum as SQLEnum
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.sql import func
 from src.database import Base
-from src.common.schema import WorkStatus
+from src.common.schema import WorkStatus, DamageType
 
 
 class WorkSession(Base):
     __tablename__ = "work_sessions"
     id               = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    post_key         = Column(String, unique=True, index=True, nullable=False)
     cargo_id         = Column(UUID(as_uuid=True), ForeignKey("cargos.id"), nullable=False)
     status           = Column(String, default=WorkStatus.WAITING_PRECURSOR)
     precursor_effect = Column(JSON, default=dict)
@@ -44,6 +43,7 @@ class WorkLog(Base):
     planned_count = Column(Integer)
     actual_count  = Column(Integer)
     success_count = Column(Integer)
-    damage_taken  = Column(Integer)
+    damage_taken   = Column(Integer)
+    damage_type    = Column(SQLEnum(DamageType, values_callable=lambda x: [e.value for e in x]), default=DamageType.HP, nullable=False)
     is_interrupted = Column(Boolean, default=False)
     created_at    = Column(DateTime, server_default=func.now())

@@ -36,8 +36,10 @@ if runner_type == "승무원":
 else:
     cargo_code = st.text_input("화물 코드 (공개용)", key="cargo_code")
     cargo_name = st.text_input("화물 이름 (관측 후 공개)", key="cargo_name")
-    _GRADE = {"규격": "standard", "비규격": "non_standard", "과적": "overload", "고정": "fixed"}
-    grade = _GRADE[st.selectbox("위험 등급", list(_GRADE.keys()), key="cargo_grade")]
+    _GRADE  = {"규격": "standard", "비규격": "non_standard", "과적": "overload", "고정": "fixed"}
+    _DAMAGE = {"HP (체력)": "hp", "SP (정신력)": "sp", "둘 다": "both"}
+    grade       = _GRADE[st.selectbox("위험 등급", list(_GRADE.keys()), key="cargo_grade")]
+    damage_type = _DAMAGE[st.selectbox("데미지 유형", list(_DAMAGE.keys()), key="cargo_damage_type")]
 
     c1, c2, c3, c4, c5 = st.columns(5)
     health      = c1.number_input("체력",   10, 50, 10, key="rc_health")
@@ -52,6 +54,7 @@ else:
             "cargo_name":  cargo_name,
             "cargo_code":  cargo_code or None,
             "grade":       grade,
+            "damage_type": damage_type,
             "health":      health, "mentality": mentality,
             "strength":    strength, "inteligence": inteligence,
             "cause":       cause,

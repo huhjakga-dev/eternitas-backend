@@ -1,7 +1,7 @@
 from pydantic import BaseModel, model_validator
 from typing import Optional, Annotated
 from annotated_types import Ge, Le
-from src.common.schema import CargoGrade, CrewType
+from src.common.schema import CargoGrade, CrewType, DamageType
 
 Stat      = Annotated[int, Ge(1), Le(10)]
 CargoStat = Annotated[int, Ge(10), Le(50)]
@@ -27,13 +27,14 @@ class CreateCrewRunner(BaseModel):
 
 class CreateCargoRunner(BaseModel):
     cargo_name:  str
-    cargo_code:  Optional[str] = None
+    cargo_code:  Optional[str]  = None
     grade:       CargoGrade
-    health:      CargoStat = 10
-    mentality:   CargoStat = 10
-    strength:    CargoStat = 10
-    inteligence: CargoStat = 10
-    cause:       CargoStat = 10
+    damage_type: DamageType     = DamageType.HP
+    health:      CargoStat      = 10
+    mentality:   CargoStat      = 10
+    strength:    CargoStat      = 10
+    inteligence: CargoStat      = 10
+    cause:       CargoStat      = 10
 
 
 class StatModifier(BaseModel):
@@ -53,4 +54,4 @@ class CreateCargoPattern(BaseModel):
     buff_damage_reduction:  float           = 0.0
     debuff_stat_json:       StatModifier    = StatModifier()
     debuff_demage_increase: float           = 0.0
-    instant_kill_rate:      Optional[float] = None
+    instant_kill:           bool            = False
