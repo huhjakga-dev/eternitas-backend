@@ -2,25 +2,26 @@ from enum import Enum
 
 
 class CrewType(str, Enum):
-    VOLUNTEER = "volunteer"  # 자원 승무원
-    CONVICT   = "convict"    # 사형수 승무원
+    VOLUNTEER = "volunteer"
+    CONVICT   = "convict"
 
 
 class CargoGrade(str, Enum):
-    STANDARD = "standard"
+    STANDARD     = "standard"
     NON_STANDARD = "non_standard"
-    OVERLOAD = "overload"
-    FIXED = "fixed"
-
-
-class DamageType(str, Enum):
-    HP = "hp"
-    SP = "sp"
-    BOTH = "both"
+    OVERLOAD     = "overload"
+    FIXED        = "fixed"
 
 
 class WorkStatus(str, Enum):
     WAITING_PRECURSOR = "waiting_precursor"
-    PRECURSOR_ACTIVE = "precursor_active"
-    MAIN_WORK_READY = "main_work_ready"
-    RESOLVED = "resolved"
+    PRECURSOR_ACTIVE  = "precursor_active"
+    MAIN_WORK_READY   = "main_work_ready"
+    RESOLVED          = "resolved"
+
+
+class PrecursorResult(str, Enum):
+    SUCCESS       = "success"
+    INVALID       = "invalid"       # 무효: 판정 자체가 성립 안 됨
+    FAIL          = "fail"
+    CRITICAL_FAIL = "critical_fail"

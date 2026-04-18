@@ -3,7 +3,7 @@ from registration_dashboard import get_db, fetch_crews, fetch_cargos, GRADE_LABE
 
 def show():
     st.image("eternitas_banner.png", use_container_width=True)
-    st.title("ETERNITAS — 신청 접수 현황")
+    st.title("ETERNITAS — 프로필 접수 현황")
 
     if st.button("새로고침"):
         st.cache_resource.clear()
@@ -22,8 +22,8 @@ def show():
     volunteers = [c for c in crews if c.crew_type == "volunteer"]
     convicts   = [c for c in crews if c.crew_type == "convict"]
 
-    # ── 신청 현황 ──────────────────────────────────────────────────────────────
-    st.subheader("신청 현황")
+    # ── 접수 현황 ──────────────────────────────────────────────────────────────
+    st.subheader("접수 현황")
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("자원 승무원",   len(volunteers))
     c2.metric("사형수 승무원", len(convicts))
@@ -45,13 +45,13 @@ def show():
         for i, (grade, count) in enumerate(present):
             g_cols[i].metric(GRADE_LABEL.get(grade, grade), count)
     else:
-        st.info("신청된 화물이 없습니다.")
+        st.info("접수된 화물 프로필이 없습니다.")
 
     st.divider()
 
     # ── 승무원 스탯 분포 ───────────────────────────────────────────────────────
+    st.subheader("승무원 스탯 분포")
     if crews:
-        st.subheader("승무원 스탯 분포")
         stats  = ["health", "mentality", "strength", "inteligence", "luckiness"]
         labels = ["체력", "정신력", "근력", "지력", "행운"]
 
@@ -66,8 +66,6 @@ def show():
             s2.metric("5 ~ 7", mid)
             s3.metric("8 ~ 10", high)
 
-        st.divider()
-
         # ── 기계화 단계 분포 ───────────────────────────────────────────────────
         st.subheader("기계화 단계 분포")
         mech_counts = {}
@@ -77,5 +75,7 @@ def show():
         m_cols = st.columns(max(len(mech_counts), 1))
         for i, (lv, count) in enumerate(sorted(mech_counts.items())):
             m_cols[i].metric(lv, count)
-
+    else:
+        st.info("접수된 승무원 프로필이 없습니다.")
+        st.divider()
 show()

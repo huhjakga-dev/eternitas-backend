@@ -3,11 +3,13 @@ name: eternitas-dashboard
 services:
   dashboard:
     build: .
+    init: true
     command: >
       uv run streamlit run crew_dashboard.py
       --server.port 8501
       --server.address 0.0.0.0
       --server.headless true
+      --server.fileWatcherType poll
     ports:
       - "8501:8501"
     env_file:
@@ -22,11 +24,13 @@ services:
 
   registration:
     build: .
+    init: true
     command: >
       uv run streamlit run registration_dashboard.py
       --server.port 8503
       --server.address 0.0.0.0
       --server.headless true
+      --server.fileWatcherType poll
     ports:
       - "8503:8503"
     env_file:
@@ -42,20 +46,26 @@ services:
 
   admin:
     build: .
+    init: true
     command: >
       uv run streamlit run admin_dashboard.py
       --server.port 8502
       --server.address 0.0.0.0
       --server.headless true
+      --server.fileWatcherType poll
     ports:
       - "8502:8502"
     env_file:
       - .env
     environment:
       - ADMIN_API_BASE=http://host.docker.internal:8000
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - ./src:/app/src
       - ./admin_dashboard.py:/app/admin_dashboard.py
+      - ./admin_api.py:/app/admin_api.py
+      - ./admin_pages:/app/admin_pages
       - /Users/heojeongyun/Desktop/media/eternitas/eternitas_banner.png:/app/eternitas_banner.png
     dns:
       - 8.8.8.8

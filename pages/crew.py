@@ -3,7 +3,7 @@ from registration_dashboard import get_db, fetch_crews, MECH, CREW_TYPE_LABEL
 
 def show():
     st.image("eternitas_banner.png", use_container_width=True)
-    st.title("승무원 신청 현황")
+    st.title("승무원 접수 현황")
 
     col_r, col_v = st.columns([1, 4])
     with col_r:
@@ -22,11 +22,11 @@ def show():
     finally:
         db.close()
 
-    st.metric("신청 인원", len(crews))
+    st.metric("접수 인원", len(crews))
     st.divider()
 
     if not crews:
-        st.info("신청된 승무원이 없습니다.")
+        st.info("접수된 승무원 프로필이 없습니다.")
         return
 
     if view == "카드":
@@ -35,7 +35,7 @@ def show():
             if not typed:
                 continue
             st.subheader(f"{type_label} ({len(typed)}명)")
-            cols = st.columns(4)
+            cols = st.columns(3)
             for idx, c in enumerate(typed):
                 total = (c.health or 0) + (c.mentality or 0) + (c.strength or 0) + (c.inteligence or 0) + (c.luckiness or 0)
 

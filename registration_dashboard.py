@@ -1,5 +1,5 @@
 """
-ETERNITAS 러너 신청 현황 대시보드
+ETERNITAS 러너 접수 현황 대시보드
 실행: streamlit run registration_dashboard.py
 """
 import os
@@ -21,13 +21,13 @@ DATABASE_URL = (
 )
 
 GRADE_LABEL = {
-    "standard":     "일반",
+    "standard":     "규격",
     "non_standard": "비규격",
     "overload":     "과적",
     "fixed":        "고정",
 }
 
-MECH = {0: "0단계", 1: "Lv.1", 2: "Lv.2", 3: "Lv.3", 4: "Lv.4"}
+MECH = {0: "Lv.0", 1: "Lv.1", 2: "Lv.2", 3: "Lv.3", 4: "Lv.4"}
 
 
 @st.cache_resource
@@ -54,6 +54,7 @@ def fetch_cargos(db):
     return db.execute(text("""
         SELECT
             c.cargo_name,
+            c.cargo_code,
             c.grade
         FROM cargos c
         ORDER BY c.grade, c.cargo_name

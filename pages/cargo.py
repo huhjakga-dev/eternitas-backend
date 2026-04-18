@@ -10,7 +10,7 @@ GRADE_COLOR = {
 
 def show():
     st.image("eternitas_banner.png", use_container_width=True)
-    st.title("화물 신청 현황")
+    st.title("화물 접수 현황")
 
     col_r, col_v = st.columns([1, 4])
     with col_r:
@@ -29,11 +29,11 @@ def show():
     finally:
         db.close()
 
-    st.metric("신청 화물", len(cargos))
+    st.metric("화물 접수", len(cargos))
     st.divider()
 
     if not cargos:
-        st.info("신청된 화물이 없습니다.")
+        st.info("접수된 화물 프로필이 없습니다.")
         return
 
     if view == "카드":
@@ -43,7 +43,7 @@ def show():
             with cols[idx % 4]:
                 st.markdown(f"""
 <div style="background:#1e293b;border-radius:8px;padding:12px;margin-bottom:8px;">
-  <b style="font-size:1rem;color:#f1f5f9;">{c.cargo_name}</b>
+  <b style="font-size:1rem;color:#f1f5f9;">{c.cargo_code or "미공개"}</b>
   <div style="margin-top:6px;">
     <span style="font-size:0.78rem;color:{color};font-weight:600;">
       {GRADE_LABEL.get(c.grade, c.grade)}
@@ -56,7 +56,7 @@ def show():
         import pandas as pd
         rows = [
             {
-                "화물 코드": c.cargo_name,
+                "화물 코드": c.cargo_code or "미공개",
                 "위험 등급": GRADE_LABEL.get(c.grade, c.grade),
             }
             for c in cargos
