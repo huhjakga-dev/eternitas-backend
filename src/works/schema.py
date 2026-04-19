@@ -1,24 +1,23 @@
 from pydantic import BaseModel
 from typing import Literal
-from src.common.schema import PrecursorResult
+
+StatType = Literal["health", "mentality", "strength", "inteligence", "luckiness"]
 
 
 class CreateSession(BaseModel):
     cargo_id:  str
-    crew_ids:  list[str]    = []
+    crew_ids:  list[str] = []
 
 
-class PrecursorDeclarationBody(BaseModel):
-    pass  # comment_key 불필요 — session당 1회
-
-
-class CrewResponseBody(BaseModel):
-    crew_id: str
-    result:  PrecursorResult
+class PrecursorCalculate(BaseModel):
+    pattern_id: str
+    is_success: bool
+    crew_id:    str
+    stat:       StatType
 
 
 class WorkCommand(BaseModel):
-    stat:  Literal["health", "mentality", "strength", "inteligence", "luckiness"]
+    stat:  StatType
     count: int
 
 

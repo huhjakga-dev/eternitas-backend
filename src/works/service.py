@@ -10,70 +10,96 @@ from src.runners.models import Crew, Cargo, CargoPattern
 from src.common.schema import WorkStatus, PrecursorResult, DamageType
 
 
+# ── 판정 유틸리티 ──────────────────────────────────────────────────────────────
+
+def roll_vs_cargo(crew_stat: int, cargo_fixed: int) -> dict:
+    """화물/승무원 대항 판정: 승무원 1d(5×stat) vs 화물 고정값. 승무원 >= 화물이면 성공."""
+    crew_roll = random.randint(1, max(1, crew_stat * 5))
+    return {"crew_roll": crew_roll, "cargo_fixed": cargo_fixed, "success": crew_roll >= cargo_fixed}
+
+
+def roll_solo(crew_stat: int, threshold: int) -> dict:
+    """캐릭터 어필 판정: 1d(5×stat) vs 고정 성공치. 굴림 >= 성공치이면 성공."""
+    roll = random.randint(1, max(1, crew_stat * 5))
+    return {"roll": roll, "threshold": threshold, "success": roll >= threshold}
+
+
+def roll_vs_crew(stat_a: int, stat_b: int) -> dict:
+    """승무원 러너 대항: 각 1d(5×stat) 비교. a >= b이면 a 승리."""
+    roll_a = random.randint(1, max(1, stat_a * 5))
+    roll_b = random.randint(1, max(1, stat_b * 5))
+    return {"roll_a": roll_a, "roll_b": roll_b, "a_wins": roll_a >= roll_b}
+
+
 class WorkService:
     def __init__(self, db: Session) -> None:
         self.db = db
 
     # ── 전조 선언 ─────────────────────────────────────────────────────────────
 
-    def handle_precursor_declaration(self, session: WorkSession) -> dict:
-        """
-        전조 선언 처리. 화물 패턴 조회 → PrecursorLog 생성 → PRECURSOR_ACTIVE.
-        여러 번 호출해도 PrecursorLog가 1:N으로 쌓이므로 2회 전조 지원.
-        """
-        pattern = (
-            self.db.query(CargoPattern)
-            .filter(CargoPattern.cargo_id == session.cargo_id)
-            .first()
-        )
-        self.db.add(PrecursorLog(session_id=session.id, pattern_id=pattern.id if pattern else None))
-        session.status = WorkStatus.PRECURSOR_ACTIVE
-        self.db.commit()
-        return {
-            "pattern": pattern.pattern_name if pattern else None,
-            "description": pattern.description if pattern else None,
-        }
-
-    # ── 승무원 대응 ───────────────────────────────────────────────────────────
-
-    def handle_crew_response(
-        self, session: WorkSession, crew_id: _uuid.UUID, result: PrecursorResult
+    def handle_precursor_declaration(
+        self,
+        session: WorkSession,
+        pattern_id: _uuid.UUID,
+        crew_id: _uuid.UUID,
+        stat: str,
+        player_success: bool,
     ) -> dict:
         """
-        승무원 대응 처리. 전조 효과를 precursor_effect에 누적 → MAIN_WORK_READY.
-        여러 번 호출 시 효과가 합산됨 (스탯 보정 합산, 데미지 배율 증감 합산).
-        critical_fail + instant_kill=True → 참여자 랜덤 1명 즉사.
+        전조 선언 처리: 화물/승무원 대항 판정 → 결과 결정 → 효과 누적 적용.
+        둘 다 성공 → SUCCESS(버프), 둘 다 실패 → FAIL(디버프, 5% 대실패), 엇갈림 → INVALID.
         """
-        log = (
-            self.db.query(PrecursorLog)
-            .filter(PrecursorLog.session_id == session.id, PrecursorLog.result == None)
-            .first()
-        )
-        if not log:
-            return {"error": "처리할 PrecursorLog 없음"}
+        pattern = self.db.query(CargoPattern).filter(CargoPattern.id == pattern_id).first()
+        if not pattern:
+            return {"error": "패턴 없음"}
 
-        log.result = result
-        log.crew_id = crew_id
+        crew = self.db.query(Crew).filter(Crew.id == crew_id).first()
+        if not crew:
+            return {"error": "승무원 없음"}
 
-        new_mods = self._calc_modifiers(result, log.pattern_id)
+        cargo = self.db.query(Cargo).filter(Cargo.id == pattern.cargo_id).first()
+        if not cargo:
+            return {"error": "cargo 스탯을 찾을 수 없음"}
+
+        cargo_stat_raw = getattr(cargo, stat, None)
+        if cargo_stat_raw is None:
+            return {"error": f"cargo 스탯을 찾을 수 없음: {stat}"}
+
+        crew_stat_val  = int(getattr(crew, stat, 1) or 1)
+        cargo_stat_val = int(cargo_stat_raw)
+
+        roll = roll_vs_cargo(crew_stat_val, cargo_stat_val)
+        auto_success = roll["success"]
+
+        if player_success and auto_success:
+            result = PrecursorResult.SUCCESS
+        elif not player_success and not auto_success:
+            result = PrecursorResult.CRITICAL_FAIL if random.random() < 0.05 else PrecursorResult.FAIL
+        else:
+            result = PrecursorResult.INVALID
+
+        applied_effect = self._calc_modifiers(result, pattern)
         merged = dict(session.precursor_effect or {})
-        for k, v in new_mods.items():
+        for k, v in applied_effect.items():
             merged[k] = round(merged.get(k, 0.0) + v, 6)
         session.precursor_effect = merged
         flag_modified(session, "precursor_effect")
 
-        if result == PrecursorResult.CRITICAL_FAIL:
-            msg = self._handle_critical_fail(session, log.pattern_id)
+        self.db.add(PrecursorLog(session_id=session.id, pattern_id=pattern.id, crew_id=crew_id, result=result))
+
+        kill_detail = None
+        if result == PrecursorResult.CRITICAL_FAIL and pattern.instant_kill:
+            kill_detail = self._handle_critical_fail(session)
         else:
             session.status = WorkStatus.MAIN_WORK_READY
-            self.db.commit()
-            msg = {
-                PrecursorResult.SUCCESS: "성공 — 버프 적용",
-                PrecursorResult.INVALID: "무효 — 보정 없음",
-                PrecursorResult.FAIL:    "실패 — 디버프 적용",
-            }[result]
 
-        return {"result": result, "message": msg, "precursor_effect": session.precursor_effect}
+        self.db.commit()
+        return {
+            "result": result,
+            "roll_detail": roll,
+            "applied_effect": applied_effect,
+            "kill_detail": kill_detail,
+        }
 
     # ── 본 작업 ──────────────────────────────────────────────────────────────
 
@@ -83,7 +109,7 @@ class WorkService:
         """
         본 작업 처리 (참여자 1인분 제출).
 
-        판정: 1d(스탯×5 + 버프×5) vs 화물 고정 스탯값.
+        판정: roll_vs_cargo(스탯+버프, 화물 고정값).
         데미지: round((차이) × damage_multiplier × (1 + _damage_modifier)), 생존자 균등 분산.
         사망 판정:
           - HP/BOTH 타입: HP=0 → 즉사
@@ -124,7 +150,6 @@ class WorkService:
 
             stat_buff: float = mods.get(cmd["stat"], 0.0)
             effective_stat   = max(1, (getattr(crew, cmd["stat"], 1) or 1) + stat_buff)
-            dice_max: int    = max(1, round(effective_stat * 5))
             cargo_fixed: int = int(getattr(cargo, cmd["stat"], 15) or 15) if cargo else 15
 
             logs, ok, dmg, actual = [], 0, 0, 0
@@ -133,9 +158,11 @@ class WorkService:
                 if interrupted:
                     break
                 actual += 1
-                c_roll = random.randint(1, dice_max)
 
-                if c_roll > cargo_fixed:
+                roll = roll_vs_cargo(int(effective_stat), cargo_fixed)
+                c_roll = roll["crew_roll"]
+
+                if roll["success"]:
                     ok += 1
                     logs.append(f"제{i}턴: 성공 ({c_roll} vs {cargo_fixed})")
                 else:
@@ -168,9 +195,9 @@ class WorkService:
 
         self.db.commit()
 
-        # 전멸 체크
         if not any(not p.is_dead for p in all_participants):
-            session.status = WorkStatus.RESOLVED
+            session.status       = WorkStatus.RESOLVED
+            session.final_result = "fail"
             if cargo:
                 cargo.failure_count = (cargo.failure_count or 0) + 1
             self.db.commit()
@@ -179,7 +206,6 @@ class WorkService:
                 "session_status": session.status, "session_result": "전멸 — 작업 실패",
             }
 
-        # 모든 참여자 완료 시 최종 판정
         session_result = self._finalize_if_all_done(session, cargo, all_participants)
         return {
             "summary": summary, "interrupted": interrupted,
@@ -201,14 +227,15 @@ class WorkService:
         }
         for p in all_participants:
             if p.id not in submitted_ids and not p.is_dead:
-                return None  # 아직 미제출 생존자 있음
+                return None
 
         logs          = self.db.query(WorkLog).filter(WorkLog.session_id == session.id).all()
         total_turns   = sum(l.planned_count for l in logs)
         total_success = sum(l.success_count for l in logs)
         final_success = total_turns > 0 and total_success > total_turns / 2
 
-        session.status = WorkStatus.RESOLVED
+        session.status       = WorkStatus.RESOLVED
+        session.final_result = "success" if final_success else "fail"
         if cargo:
             if final_success:
                 cargo.success_count    = (cargo.success_count or 0) + 1
@@ -218,28 +245,19 @@ class WorkService:
         self.db.commit()
         return "최종 성공" if final_success else "최종 실패"
 
-    def _handle_critical_fail(self, session: WorkSession, pattern_id: Optional[_uuid.UUID]) -> str:
-        """대실패 처리. instant_kill=True일 때만 참여자 랜덤 1명 즉사."""
-        pattern = (
-            self.db.query(CargoPattern).filter(CargoPattern.id == pattern_id).first()
-            if pattern_id else None
-        )
-        if not (pattern and pattern.instant_kill):
-            session.status = WorkStatus.MAIN_WORK_READY
-            self.db.commit()
-            return "대실패 — 즉사 기믹 없음"
-
+    def _handle_critical_fail(self, session: WorkSession) -> str:
+        """대실패 즉사 처리 (instant_kill=True 보장된 호출). 커밋은 호출자가 수행."""
         crew_ids = [
             sc.crew_id for sc in
             self.db.query(WorkSessionCrew).filter(WorkSessionCrew.session_id == session.id).all()
         ]
-        living = [
-            c for c in self.db.query(Crew).filter(Crew.id.in_(crew_ids)).all() if not c.is_dead
-        ] if crew_ids else []
+        living = (
+            [c for c in self.db.query(Crew).filter(Crew.id.in_(crew_ids)).all() if not c.is_dead]
+            if crew_ids else []
+        )
 
         if not living:
             session.status = WorkStatus.MAIN_WORK_READY
-            self.db.commit()
             return "대실패 — 생존 승무원 없음"
 
         victim    = random.choice(living)
@@ -247,24 +265,16 @@ class WorkService:
         remaining = [c for c in living if c.id != victim.id]
 
         if not remaining:
-            session.status = WorkStatus.RESOLVED
-            self.db.commit()
+            session.status       = WorkStatus.RESOLVED
+            session.final_result = "fail"
             return f"대실패 즉사 — {victim.crew_name} 사망, 생존자 없음 → 작업 종료"
 
         session.status = WorkStatus.MAIN_WORK_READY
-        self.db.commit()
         return f"대실패 즉사 — {victim.crew_name} 사망, 생존자 {len(remaining)}명"
 
-    def _calc_modifiers(self, result: PrecursorResult, pattern_id: Optional[_uuid.UUID]) -> dict:
-        """
-        전조 결과에 따른 보정 delta 반환 (누적 합산용).
-        _damage_modifier: 양수 = 데미지 증가, 음수 = 데미지 감소.
-        """
-        if result == PrecursorResult.INVALID or pattern_id is None:
-            return {}
-
-        pattern = self.db.query(CargoPattern).filter(CargoPattern.id == pattern_id).first()
-        if not pattern:
+    def _calc_modifiers(self, result: PrecursorResult, pattern: CargoPattern) -> dict:
+        """전조 결과에 따른 보정 delta 반환."""
+        if result == PrecursorResult.INVALID:
             return {}
 
         if result == PrecursorResult.SUCCESS:
@@ -310,7 +320,6 @@ class WorkService:
         return False
 
     def _kill(self, crew: Crew) -> None:
-        """승무원 사망 처리. 1시간 후 스케줄러가 자동 부활."""
         crew.hp = 0
         crew.is_dead = True
         crew.death_time = datetime.now(timezone.utc)

@@ -4,7 +4,7 @@ from src.database import DbSession
 from src.common.schema import WorkStatus
 from .service import WorkService
 from .models import WorkSession, WorkSessionCrew
-from .schema import CreateSession, CrewResponseBody, MainWorkBody
+from .schema import CreateSession, PrecursorCalculate, MainWorkBody
 
 router = APIRouter(prefix="/works", tags=["Works"])
 
@@ -37,35 +37,39 @@ async def list_sessions(db: DbSession) -> list[dict]:
     ]
 
 
-@router.post("/sessions/{session_id}/precursor-declaration")
-async def precursor_declaration(session_id: str, db: DbSession) -> dict:
+@router.post("/sessions/{session_id}/precursor-calculate")
+async def precursor_declaration(session_id: str, body: PrecursorCalculate, db: DbSession) -> dict:
     """
-    전조 선언 처리. WAITING_PRECURSOR → PRECURSOR_ACTIVE.
-    화물 패턴을 찾아 PrecursorLog 생성.
-    """
-    session = db.query(WorkSession).filter(WorkSession.id == uuid.UUID(session_id)).first()
-    if not session:
-        raise HTTPException(status_code=404, detail="session 없음")
-
-    result = WorkService(db).handle_precursor_declaration(session)
-    db.refresh(session)
-    return {"session_id": session_id, "session_status": session.status, "detail": result}
-
-
-@router.post("/sessions/{session_id}/crew-response")
-async def crew_response(session_id: str, body: CrewResponseBody, db: DbSession) -> dict:
-    """
-    승무원 대응 처리. PRECURSOR_ACTIVE → MAIN_WORK_READY.
-    운영자가 결정한 판정 결과(success/invalid/fail/critical_fail)로 버프/디버프 저장.
-    critical_fail이면 승무원 즉시 사망.
+    전조 선언 처리.
+    화물/승무원 대항 판정 후 입력 성공 여부와 비교:
+    - 둘 다 성공 → SUCCESS (버프 적용)
+    - 엇갈림    → INVALID (효과 없음)
+    - 둘 다 실패 → FAIL (디버프 적용, 5% 대실패)
     """
     session = db.query(WorkSession).filter(WorkSession.id == uuid.UUID(session_id)).first()
     if not session:
         raise HTTPException(status_code=404, detail="session 없음")
 
-    result = WorkService(db).handle_crew_response(session, uuid.UUID(body.crew_id), body.result)
+    result = WorkService(db).handle_precursor_declaration(
+        session,
+        uuid.UUID(body.pattern_id),
+        uuid.UUID(body.crew_id),
+        body.stat,
+        body.is_success,
+    )
+
+    if "error" in result:
+        raise HTTPException(status_code=404, detail=result["error"])
+
     db.refresh(session)
-    return {"session_id": session_id, "session_status": session.status, "precursor_effect": session.precursor_effect, "detail": result}
+    return {
+        "session_id": session_id,
+        "session_status": session.status,
+        "result": result["result"],
+        "applied_effect": result["applied_effect"],
+        "roll_detail": result["roll_detail"],
+        "kill_detail": result["kill_detail"],
+    }
 
 
 @router.post("/sessions/{session_id}/main-work")

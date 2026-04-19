@@ -69,7 +69,7 @@ async def create_cargo_runner(body: CreateCargoRunner, db: DbSession) -> dict:
 @router.post("/cargo/pattern")
 async def upsert_cargo_pattern(body: CreateCargoPattern, db: DbSession) -> dict:
     """
-    화물 전조 패턴 등록/수정 (upsert). cargo 1개당 패턴 1개.
+    화물 전조 패턴 등록 (insert)
 
     Returns: pattern_id, cargo_id, pattern_name, updated(bool)
     """
@@ -83,19 +83,6 @@ async def upsert_cargo_pattern(body: CreateCargoPattern, db: DbSession) -> dict:
 
     buff   = body.buff_stat_json.model_dump()
     debuff = body.debuff_stat_json.model_dump()
-
-    existing = db.query(CargoPattern).filter(CargoPattern.cargo_id == cargo_uuid).first()
-    if existing:
-        existing.pattern_name           = body.pattern_name
-        existing.description            = body.description
-        existing.answer                 = body.answer
-        existing.buff_stat_json         = buff
-        existing.buff_damage_reduction  = body.buff_damage_reduction
-        existing.debuff_stat_json       = debuff
-        existing.debuff_demage_increase = body.debuff_demage_increase
-        existing.instant_kill           = body.instant_kill
-        db.commit()
-        return {"pattern_id": str(existing.id), "cargo_id": str(existing.cargo_id), "pattern_name": existing.pattern_name, "updated": True}
 
     pattern = CargoPattern(
         cargo_id=cargo_uuid,

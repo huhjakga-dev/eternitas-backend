@@ -7,16 +7,23 @@ from src.common.schema import WorkStatus, DamageType
 
 
 class WorkSession(Base):
+    """
+    작업 세션 테이블
+    """
     __tablename__ = "work_sessions"
     id               = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     cargo_id         = Column(UUID(as_uuid=True), ForeignKey("cargos.id"), nullable=False)
     status           = Column(String, default=WorkStatus.WAITING_PRECURSOR)
     precursor_effect = Column(JSON, default=dict)
+    final_result     = Column(String, nullable=True)  # "success" / "fail"
     created_at       = Column(DateTime, server_default=func.now())
     updated_at       = Column(DateTime, server_default=func.now(), onupdate=func.now())
 
 
 class PrecursorLog(Base):
+    """
+    전조 로그 테이블
+    """
     __tablename__ = "precursor_logs"
     id         = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     session_id = Column(UUID(as_uuid=True), ForeignKey("work_sessions.id"), nullable=False)
@@ -27,6 +34,9 @@ class PrecursorLog(Base):
 
 
 class WorkSessionCrew(Base):
+    """
+    작업 세션에 참여한 승무원 러너 테이블
+    """
     __tablename__ = "work_session_crews"
     id         = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     session_id = Column(UUID(as_uuid=True), ForeignKey("work_sessions.id"), nullable=False)
@@ -35,6 +45,9 @@ class WorkSessionCrew(Base):
 
 
 class WorkLog(Base):
+    """
+    작업 로그 테이블
+    """
     __tablename__ = "work_logs"
     id            = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     session_id    = Column(UUID(as_uuid=True), ForeignKey("work_sessions.id"), nullable=False)

@@ -3,10 +3,18 @@ from fastapi import FastAPI
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 from datetime import datetime, timezone, timedelta
+from zoneinfo import ZoneInfo
+
 from src.database import SessionLocal
 from src.works.router import router as works_router
 from src.runners.router import router as runners_router
+from src.train.router import router as train_router
 from src.runners.models import Crew
+from src.works.models import WorkSession
+from src.train.models import TrainState
+from src.common.schema import WorkStatus
+
+_SEOUL = ZoneInfo("Asia/Seoul")
 
 
 async def scheduled_resurrect():
@@ -30,6 +38,52 @@ async def scheduled_resurrect():
             crew.sp = round((crew.mentality or 1) * 5 * mech_sp_mult[new_lv])
         if dead_crews:
             db.commit()
+    finally:
+        db.close()
+
+
+async def scheduled_train_speed():
+    """
+    매일 자정: 전날 완료된 작업 세션 성공률 계산 → 열차 속력 조정.
+    성공률 > 0.75 → +1Mph / 0.25~0.75 → 변화 없음 / < 0.25 → -1Mph
+    """
+    db = SessionLocal()
+    try:
+        now          = datetime.now(_SEOUL)
+        today_start  = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        yesterday    = today_start - timedelta(days=1)
+        today_utc     = today_start.astimezone(timezone.utc).replace(tzinfo=None)
+        yesterday_utc = yesterday.astimezone(timezone.utc).replace(tzinfo=None)
+
+        sessions = (
+            db.query(WorkSession)
+            .filter(
+                WorkSession.status == WorkStatus.RESOLVED,
+                WorkSession.final_result.in_(["success", "fail"]),
+                WorkSession.updated_at >= yesterday_utc,
+                WorkSession.updated_at < today_utc,
+            )
+            .all()
+        )
+
+        if not sessions:
+            return
+
+        total   = len(sessions)
+        success = sum(1 for s in sessions if s.final_result == "success")
+        ratio   = success / total
+
+        state = db.query(TrainState).first()
+        if not state:
+            state = TrainState(speed=60)
+            db.add(state)
+
+        if ratio > 0.75:
+            state.speed += 1
+        elif ratio < 0.25:
+            state.speed -= 1
+
+        db.commit()
     finally:
         db.close()
 
@@ -73,6 +127,7 @@ scheduler = AsyncIOScheduler(timezone="Asia/Seoul")
 async def lifespan(app: FastAPI):
     scheduler.add_job(scheduled_resurrect, "interval", minutes=1)
     scheduler.add_job(scheduled_midnight_recovery, "cron", hour=0, minute=0)
+    scheduler.add_job(scheduled_train_speed,        "cron", hour=0, minute=0)
     scheduler.start()
     yield
     scheduler.shutdown()
@@ -86,6 +141,7 @@ app = FastAPI(
 
 app.include_router(runners_router)
 app.include_router(works_router)
+app.include_router(train_router)
 
 
 @app.get("/health")
