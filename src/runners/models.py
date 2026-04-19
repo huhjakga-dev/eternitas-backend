@@ -68,6 +68,7 @@ class Cargo(Base):
     failure_count    = Column(Float, default=0)
     observation_rate  = Column(Float, default=0)   # 관측률
     adapt_point       = Column(Integer, default=0) # 적응 데이터
+    total_turns       = Column(Integer, default=10, nullable=False)
     damage_multiplier = Column(Float, default=0.1, nullable=False)
     created_at       = Column(DateTime, server_default=func.now())
     updated_at       = Column(DateTime, server_default=func.now(), onupdate=func.now())
@@ -76,7 +77,7 @@ class Cargo(Base):
 class CargoPattern(Base):
     __tablename__ = "cargo_patterns"
     id                     = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    cargo_id               = Column(UUID(as_uuid=True), ForeignKey("cargos.id"), unique=True)
+    cargo_id               = Column(UUID(as_uuid=True), ForeignKey("cargos.id"))
     pattern_name           = Column(String)
     description            = Column(String)
     answer                 = Column(String) # 패턴 정답

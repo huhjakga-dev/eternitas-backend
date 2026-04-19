@@ -44,24 +44,23 @@ async def scheduled_resurrect():
 
 async def scheduled_train_speed():
     """
-    매일 자정: 전날 완료된 작업 세션 성공률 계산 → 열차 속력 조정.
+    매일 12시: 당일 완료된 작업 세션 성공률 계산 → 열차 속력 조정.
     성공률 > 0.75 → +1Mph / 0.25~0.75 → 변화 없음 / < 0.25 → -1Mph
     """
     db = SessionLocal()
     try:
-        now          = datetime.now(_SEOUL)
-        today_start  = now.replace(hour=0, minute=0, second=0, microsecond=0)
-        yesterday    = today_start - timedelta(days=1)
-        today_utc     = today_start.astimezone(timezone.utc).replace(tzinfo=None)
-        yesterday_utc = yesterday.astimezone(timezone.utc).replace(tzinfo=None)
+        now         = datetime.now(_SEOUL)
+        today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        today_utc   = today_start.astimezone(timezone.utc).replace(tzinfo=None)
+        now_utc     = now.astimezone(timezone.utc).replace(tzinfo=None)
 
         sessions = (
             db.query(WorkSession)
             .filter(
                 WorkSession.status == WorkStatus.RESOLVED,
                 WorkSession.final_result.in_(["success", "fail"]),
-                WorkSession.updated_at >= yesterday_utc,
-                WorkSession.updated_at < today_utc,
+                WorkSession.updated_at >= today_utc,
+                WorkSession.updated_at <= now_utc,
             )
             .all()
         )
@@ -126,8 +125,8 @@ scheduler = AsyncIOScheduler(timezone="Asia/Seoul")
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     scheduler.add_job(scheduled_resurrect, "interval", minutes=1)
-    scheduler.add_job(scheduled_midnight_recovery, "cron", hour=0, minute=0)
-    scheduler.add_job(scheduled_train_speed,        "cron", hour=0, minute=0)
+    scheduler.add_job(scheduled_midnight_recovery, "cron", hour=0,  minute=0)
+    scheduler.add_job(scheduled_train_speed,        "cron", hour=12, minute=0)
     scheduler.start()
     yield
     scheduler.shutdown()

@@ -35,6 +35,7 @@ class CreateCargoRunner(BaseModel):
     strength:    CargoStat      = 10
     inteligence: CargoStat      = 10
     cause:       CargoStat      = 10
+    total_turns: int            = 10
 
 
 class StatModifier(BaseModel):

@@ -130,6 +130,11 @@ class WorkService:
         damage_type       = cargo.damage_type if cargo else DamageType.HP
         damage_multiplier = float(cargo.damage_multiplier) if cargo else 0.1
 
+        if cargo and cargo.total_turns:
+            submitted = sum(cmd["count"] for cmd in commands)
+            if submitted != cargo.total_turns:
+                return {"error": f"명령 횟수 합계({submitted})가 화물 총 턴수({cargo.total_turns})와 일치하지 않음"}
+
         crew_ids = [
             sc.crew_id for sc in
             self.db.query(WorkSessionCrew).filter(WorkSessionCrew.session_id == session.id).all()

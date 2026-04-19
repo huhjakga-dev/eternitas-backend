@@ -58,6 +58,7 @@ async def create_cargo_runner(body: CreateCargoRunner, db: DbSession) -> dict:
         grade=body.grade, damage_type=body.damage_type,
         health=body.health, mentality=body.mentality,
         strength=body.strength, inteligence=body.inteligence, cause=body.cause,
+        total_turns=body.total_turns,
         damage_multiplier=_GRADE_MULT.get(body.grade, 0.1),
     )
     db.add(cargo)
@@ -93,7 +94,7 @@ async def upsert_cargo_pattern(body: CreateCargoPattern, db: DbSession) -> dict:
     )
     db.add(pattern)
     db.commit()
-    return {"pattern_id": str(pattern.id), "cargo_id": str(pattern.cargo_id), "pattern_name": pattern.pattern_name, "updated": False}
+    return {"pattern_id": str(pattern.id), "cargo_id": str(pattern.cargo_id), "pattern_name": pattern.pattern_name}
 
 
 @router.get("/cargo/{cargo_id}/pattern")

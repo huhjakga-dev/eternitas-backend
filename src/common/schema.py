@@ -27,7 +27,6 @@ class WorkStatus(str, Enum):
     전조 대기, 전조 활성화, 메인 작업 준비(전조 완료), 완료
     """
     WAITING_PRECURSOR = "waiting_precursor"
-    PRECURSOR_ACTIVE  = "precursor_active"
     MAIN_WORK_READY   = "main_work_ready"
     RESOLVED          = "resolved"
 

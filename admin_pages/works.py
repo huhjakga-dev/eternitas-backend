@@ -7,7 +7,7 @@ from admin_pages.admin_api import api
 st.image("eternitas_banner.png", use_container_width=True)
 st.title("작업 관리")
 
-tabs = st.tabs(["세션 목록", "세션 생성", "전조 선언", "승무원 대응", "본 작업"])
+tabs = st.tabs(["세션 목록", "세션 생성", "전조 진행", "본 작업"])
 
 STAT_OPTIONS = {
     "체력":   "health",
@@ -15,13 +15,6 @@ STAT_OPTIONS = {
     "근력":   "strength",
     "지력":   "inteligence",
     "행운":   "luckiness",
-}
-
-RESULT_OPTIONS = {
-    "성공":   "success",
-    "무효":   "invalid",
-    "실패":   "fail",
-    "대실패": "critical_fail",
 }
 
 # ── 세션 목록 ─────────────────────────────────────────────────────────────────
@@ -46,31 +39,26 @@ with tabs[1]:
         status, data = api("post", "/works/sessions", json={"cargo_id": cargo_id, "crew_ids": crew_ids})
         st.success(data) if status in (200, 201) else st.error(data)
 
-# ── 전조 선언 ─────────────────────────────────────────────────────────────────
+# ── 전조 진행 ─────────────────────────────────────────────────────────────────
 with tabs[2]:
-    st.subheader("전조 선언")
-    pre_sid = st.text_input("session_id (UUID)", key="pre_sid")
+    st.subheader("전조 진행")
+    pre_sid        = st.text_input("session_id (UUID)", key="pre_sid")
+    pre_pattern_id = st.text_input("pattern_id (UUID)", key="pre_pattern_id")
+    pre_crew_id    = st.text_input("crew_id (UUID)", key="pre_crew_id")
+    pre_stat       = st.selectbox("판정 스탯", list(STAT_OPTIONS.keys()), key="pre_stat")
+    pre_success    = st.radio("승무원 성공 여부", ["성공", "실패"], horizontal=True, key="pre_success")
 
-    if st.button("전조 선언 처리"):
-        status, data = api("post", f"/works/sessions/{pre_sid}/precursor-declaration")
-        st.success(data) if status == 200 else st.error(data)
-
-# ── 승무원 대응 ───────────────────────────────────────────────────────────────
-with tabs[3]:
-    st.subheader("승무원 대응")
-    resp_sid     = st.text_input("session_id (UUID)", key="resp_sid")
-    resp_crew_id = st.text_input("crew_id (UUID)", key="resp_crew")
-    resp_result  = st.radio("판정 결과", list(RESULT_OPTIONS.keys()), horizontal=True, key="resp_result")
-
-    if st.button("대응 처리"):
-        status, data = api("post", f"/works/sessions/{resp_sid}/crew-response", json={
-            "crew_id": resp_crew_id,
-            "result":  RESULT_OPTIONS[resp_result],
+    if st.button("전조 판정"):
+        status, data = api("post", f"/works/sessions/{pre_sid}/precursor-calculate", json={
+            "pattern_id": pre_pattern_id,
+            "crew_id":    pre_crew_id,
+            "stat":       STAT_OPTIONS[pre_stat],
+            "is_success": pre_success == "성공",
         })
         st.success(data) if status == 200 else st.error(data)
 
 # ── 본 작업 ──────────────────────────────────────────────────────────────────
-with tabs[4]:
+with tabs[3]:
     st.subheader("본 작업")
     work_sid     = st.text_input("session_id (UUID)", key="work_sid")
     work_crew_id = st.text_input("crew_id (UUID)", key="work_crew")
