@@ -1,7 +1,7 @@
 from pydantic import BaseModel, model_validator
 from typing import Optional, Annotated
 from annotated_types import Ge, Le
-from src.common.schema import CargoGrade, CrewType, DamageType
+from src.common.schema import CargoGrade, CrewType, DamageType, EquipmentType
 
 Stat      = Annotated[int, Ge(1), Le(10)]
 CargoStat = Annotated[int, Ge(10), Le(50)]
@@ -44,6 +44,34 @@ class StatModifier(BaseModel):
     strength:    float = 0.0
     inteligence: float = 0.0
     luckiness:   float = 0.0
+
+
+class EquipmentEffects(StatModifier):
+    """StatModifier + 전투 스탯 (무기 전용)"""
+    hit_bonus:  int = 0       # 명중 보정값 (luck 굴림에 더함)
+    damage_min: int = 0       # 명중 시 최소 데미지
+    damage_max: int = 0       # 명중 시 최대 데미지
+    min_roll:   int = 0       # 0 초과 시: 굴림값의 하한선 (ex. 15 고정)
+
+
+class CreateEquipment(BaseModel):
+    name:           str
+    equipment_type: EquipmentType
+    description:    Optional[str]    = None
+    effects:        EquipmentEffects = EquipmentEffects()
+    is_default:     bool             = False
+
+
+class CreateStatusEffect(BaseModel):
+    name:        str
+    description: Optional[str] = None
+    stat_json:   StatModifier  = StatModifier()
+
+
+class HpSpDelta(BaseModel):
+    hp_delta: int = 0
+    sp_delta: int = 0
+    note:     Optional[str] = None
 
 
 class CreateCargoPattern(BaseModel):

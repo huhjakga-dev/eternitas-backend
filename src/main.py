@@ -9,10 +9,12 @@ from src.database import SessionLocal
 from src.works.router import router as works_router
 from src.runners.router import router as runners_router
 from src.train.router import router as train_router
+from src.reisolation.router import router as reisolation_router
 from src.runners.models import Crew
 from src.works.models import WorkSession
 from src.train.models import TrainState
 from src.common.schema import WorkStatus
+from src.common.utils import compute_max_caps
 
 _SEOUL = ZoneInfo("Asia/Seoul")
 
@@ -31,11 +33,14 @@ async def scheduled_resurrect():
             crew.is_dead = False
             crew.death_time = None
             crew.mechanization_lv = min((crew.mechanization_lv or 0) + 1, 4)
-            mech_hp_mult = {0: 1.0, 1: 1.0, 2: 1.1, 3: 1.3, 4: 1.5}
-            mech_sp_mult = {0: 1.0, 1: 1.0, 2: 0.8, 3: 0.6, 4: 0.5}
-            new_lv = crew.mechanization_lv
-            crew.hp = round((crew.health or 1) * 5 * mech_hp_mult[new_lv])
-            crew.sp = round((crew.mentality or 1) * 5 * mech_sp_mult[new_lv])
+            max_hp, max_sp = compute_max_caps(
+                crew.health, crew.mentality,
+                crew.mechanization_lv, crew.initial_mechanization_lv or 0,
+            )
+            crew.max_hp = max_hp
+            crew.max_sp = max_sp
+            crew.hp = max_hp
+            crew.sp = max_sp
         if dead_crews:
             db.commit()
     finally:
@@ -141,6 +146,7 @@ app = FastAPI(
 app.include_router(runners_router)
 app.include_router(works_router)
 app.include_router(train_router)
+app.include_router(reisolation_router)
 
 
 @app.get("/health")

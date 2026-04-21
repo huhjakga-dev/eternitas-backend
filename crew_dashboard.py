@@ -39,7 +39,8 @@ def fetch_crews(db):
             c.hp, c.sp,
             c.max_hp, c.max_sp,
             c.token,
-            c.is_dead, c.is_active
+            c.is_dead, c.is_active,
+            c.death_time AS death_time_utc
         FROM crews c
         ORDER BY c.crew_name
     """)).fetchall()
@@ -66,12 +67,12 @@ def fetch_equipments_by_crew(db, crew_ids: list[str]):
 
 # ── 상수 ──────────────────────────────────────────────────────────────────────
 
-MECH = {0: "0", 1: "Lv.1", 2: "Lv.2", 3: "Lv.3", 4: "Lv.4"}
+MECH = {0: "Lv.0", 1: "Lv.1", 2: "Lv.2", 3: "Lv.3", 4: "Lv.4"}
 
 def status_label(is_dead, is_active):
-    if is_dead:    return "???"
-    if not is_active: return "😴 비활성"
-    return "✅ 활성"
+    if is_dead:    return "사망"
+    if not is_active: return "비활성"
+    return "활성"
 
 # ── 메인 ──────────────────────────────────────────────────────────────────────
 
@@ -83,17 +84,15 @@ def main():
     )
 
     st.image("eternitas_banner.png", use_container_width=True)
-    st.title("🚂 ETERNITAS — 승무원 현황판")
+    st.title("ETERNITAS — 승무원 현황판")
 
-    col_r, col_f, col_v = st.columns([1, 2, 2])
+    col_r, col_v = st.columns([1, 4])
     with col_r:
-        if st.button("🔄 새로고침"):
+        if st.button("새로고침"):
             st.cache_resource.clear()
             st.rerun()
-    with col_f:
-        show_inactive = st.checkbox("비활성/??? 포함", value=False)
     with col_v:
-        view = st.radio("보기 방식", ["📋 테이블", "🃏 카드"], horizontal=True)
+        view = st.radio("보기 방식", ["테이블", "카드"], horizontal=True)
 
     db = get_db()
     try:
@@ -106,27 +105,29 @@ def main():
     finally:
         db.close()
 
-    visible = [
-        c for c in crews
-        if show_inactive or (not c.is_dead and c.is_active)
-    ]
+    visible = crews
     if not visible:
         st.info("표시할 승무원이 없습니다.")
         return
 
     # ── 테이블 뷰 ────────────────────────────────────────────────────────────
-    if view == "📋 테이블":
+    if view == "테이블":
         import pandas as pd
+
+        from datetime import timedelta
 
         rows = []
         for c in visible:
-            max_hp = c.max_hp or 1
-            max_sp = c.max_sp or 1
-            eqs    = eq_map.get(c.id, [])
-            eq_str = ", ".join(
-                f"{'🟢' if e.is_equipped else '⚫'}{e.name}"
+            max_hp   = c.max_hp or 1
+            max_sp   = c.max_sp or 1
+            eqs      = eq_map.get(c.id, [])
+            eq_str   = ", ".join(
+                f"{'[착용]' if e.is_equipped else '[미착용]'}{e.name}"
                 for e in eqs
             ) or "—"
+            death_kst  = c.death_time_utc + timedelta(hours=9) if c.death_time_utc else None
+            death_str  = death_kst.strftime("%H:%M")                          if death_kst else "—"
+            revive_str = (death_kst + timedelta(hours=1)).strftime("%H:%M")   if death_kst else "—"
             rows.append({
                 "이름":       c.crew_name,
                 "상태":       status_label(c.is_dead, c.is_active),
@@ -142,12 +143,19 @@ def main():
                 "기계화":     MECH.get(c.mechanization_lv or 0, "—"),
                 "토큰":       c.token or 0,
                 "장비":       eq_str,
+                "사망 시각":  death_str,
+                "부활 시각":  revive_str,
             })
 
         df = pd.DataFrame(rows)
 
+        def _highlight_dead(row):
+            if row["상태"] == "사망":
+                return ["background-color: #3b0a0a; color: #fca5a5;"] * len(row)
+            return [""] * len(row)
+
         st.dataframe(
-            df,
+            df.style.apply(_highlight_dead, axis=1),
             use_container_width=True,
             hide_index=True,
             column_config={
@@ -157,16 +165,18 @@ def main():
                 "SP": st.column_config.ProgressColumn(
                     "SP", min_value=0, max_value=1, format=" ",
                 ),
-                "HP 수치": st.column_config.TextColumn("HP 수치", width="small"),
-                "SP 수치": st.column_config.TextColumn("SP 수치", width="small"),
-                "체력":    st.column_config.NumberColumn("❤️체력",   width="small"),
-                "정신력":  st.column_config.NumberColumn("🧠정신력", width="small"),
-                "근력":    st.column_config.NumberColumn("💪근력",   width="small"),
-                "지력":    st.column_config.NumberColumn("📚지력",   width="small"),
-                "행운":    st.column_config.NumberColumn("🍀행운",   width="small"),
-                "기계화":  st.column_config.TextColumn("🔧기계화",  width="small"),
-                "토큰":    st.column_config.NumberColumn("토큰",    width="small"),
-                "장비":    st.column_config.TextColumn("장비",      width="medium"),
+                "HP 수치":  st.column_config.TextColumn("HP 수치",  width="small"),
+                "SP 수치":  st.column_config.TextColumn("SP 수치",  width="small"),
+                "체력":     st.column_config.NumberColumn("체력",   width="small"),
+                "정신력":   st.column_config.NumberColumn("정신력", width="small"),
+                "근력":     st.column_config.NumberColumn("근력",   width="small"),
+                "지력":     st.column_config.NumberColumn("지력",   width="small"),
+                "행운":     st.column_config.NumberColumn("행운",   width="small"),
+                "기계화":   st.column_config.TextColumn("기계화",  width="small"),
+                "토큰":     st.column_config.NumberColumn("토큰",   width="small"),
+                "장비":     st.column_config.TextColumn("장비",     width="medium"),
+                "사망 시각":st.column_config.TextColumn("사망 시각",width="small"),
+                "부활 시각":st.column_config.TextColumn("부활 시각",width="small"),
             },
             height=min(80 + len(rows) * 35, 700),
         )
@@ -177,7 +187,7 @@ def main():
         m1.metric("전체 승무원",  len(crews))
         m2.metric("활성",         sum(1 for c in crews if not c.is_dead and c.is_active))
         m3.metric("비활성",       sum(1 for c in crews if not c.is_dead and not c.is_active))
-        m4.metric("???",         sum(1 for c in crews if c.is_dead))
+        m4.metric("사망",         sum(1 for c in crews if c.is_dead))
 
     # ── 카드 뷰 ──────────────────────────────────────────────────────────────
     else:
@@ -196,44 +206,59 @@ def main():
                 for i in range(10)
             )
 
+        from datetime import timedelta
+
         cols = st.columns(4)
         for idx, c in enumerate(visible):
-            max_hp = c.max_hp or 1
-            max_sp = c.max_sp or 1
-            eqs    = eq_map.get(c.id, [])
+            max_hp      = c.max_hp or 1
+            max_sp      = c.max_sp or 1
+            eqs         = eq_map.get(c.id, [])
             badge_color = "#ef4444" if c.is_dead else ("#6b7280" if not c.is_active else "#22c55e")
+            card_bg     = "#3b0a0a" if c.is_dead else "#1e293b"
+            divider_color = "#6b2020" if c.is_dead else "#334155"
+
+            death_kst   = c.death_time_utc + timedelta(hours=9) if c.death_time_utc else None
+            death_block = ""
+            if c.is_dead and death_kst:
+                revive = (death_kst + timedelta(hours=1)).strftime("%H:%M")
+                death_block = (
+                    f'<div style="margin-top:6px;font-size:0.72rem;color:#fca5a5;">'
+                    f'사망 {death_kst.strftime("%H:%M")} → 부활 {revive}'
+                    f'</div>'
+                )
 
             def eq_item(e):
-                icon = "🟢" if e.is_equipped else "⚫"
+                label = "[착용]" if e.is_equipped else "[미착용]"
                 type_tag = (
                     '  <code style="font-size:0.7rem">' + e.equipment_type + "</code>"
                     if e.equipment_type else ""
                 )
-                return '<div style="font-size:0.75rem;color:#e2e8f0;">' + icon + " " + e.name + type_tag + "</div>"
+                return '<div style="font-size:0.75rem;color:#e2e8f0;">' + label + " " + e.name + type_tag + "</div>"
 
             eq_html = "".join(eq_item(e) for e in eqs) or '<div style="font-size:0.75rem;color:#6b7280;">장비 없음</div>'
 
             with cols[idx % 4]:
                 st.markdown(f"""
-<div style="background:#1e293b;border-radius:8px;padding:12px;margin-bottom:8px;">
+<div style="background:{card_bg};border-radius:8px;padding:12px;margin-bottom:8px;">
   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
     <b style="font-size:1rem;color:#f1f5f9;">{c.crew_name}</b>
     <span style="font-size:0.72rem;color:{badge_color};">{status_label(c.is_dead, c.is_active)}</span>
   </div>
   <div style="display:flex;justify-content:space-between;font-size:0.72rem;color:#64748b;margin-bottom:8px;">
-    <span>🔧 {MECH.get(c.mechanization_lv or 0, '—')}</span>
-    <span style="color:#fbbf24;">토큰 {c.token or 0}</span>
+    <span>기계화 {MECH.get(c.mechanization_lv or 0, '—')}</span>
+    <span style="color:#ffb716;">토큰 {c.token or 0}</span>
   </div>
+  {death_block}
   {bar(c.hp or 0, max_hp, '#ef4444')}
   {bar(c.sp or 0, max_sp, '#3b82f6')}
   <div style="margin-top:8px;font-size:0.72rem;color:#9ca3af;">
-    ❤️{pip(c.health or 0)}<br>
-    🧠{pip(c.mentality or 0)}<br>
-    💪{pip(c.strength or 0)}<br>
-    📚{pip(c.inteligence or 0)}<br>
-    🍀{pip(c.luckiness or 0)}
+    체력 {pip(c.health or 0)}<br>
+    정신력 {pip(c.mentality or 0)}<br>
+    근력 {pip(c.strength or 0)}<br>
+    지력 {pip(c.inteligence or 0)}<br>
+    행운 {pip(c.luckiness or 0)}
   </div>
-  <div style="margin-top:8px;border-top:1px solid #334155;padding-top:6px;">
+  <div style="margin-top:8px;border-top:1px solid {divider_color};padding-top:6px;">
     {eq_html}
   </div>
 </div>

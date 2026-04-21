@@ -6,8 +6,9 @@ from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import flag_modified
 
 from .models import WorkSession, PrecursorLog, WorkLog, WorkSessionCrew
-from src.runners.models import Crew, Cargo, CargoPattern
+from src.runners.models import Crew, Cargo, CargoPattern, Equipment, CrewEquipment
 from src.common.schema import WorkStatus, PrecursorResult, DamageType
+from src.common.utils import compute_max_caps
 
 
 # ── 판정 유틸리티 ──────────────────────────────────────────────────────────────
@@ -68,6 +69,9 @@ class WorkService:
         crew_stat_val  = int(getattr(crew, stat, 1) or 1)
         cargo_stat_val = int(cargo_stat_raw)
 
+        # 기본 장비(is_default=True) 미착용 승무원 SP 즉시 반감
+        equipment_penalty = self._apply_default_equipment_penalty(session)
+
         roll = roll_vs_cargo(crew_stat_val, cargo_stat_val)
         auto_success = roll["success"]
 
@@ -99,6 +103,7 @@ class WorkService:
             "roll_detail": roll,
             "applied_effect": applied_effect,
             "kill_detail": kill_detail,
+            "equipment_penalty": equipment_penalty,
         }
 
     # ── 본 작업 ──────────────────────────────────────────────────────────────
@@ -146,8 +151,9 @@ class WorkService:
         mods: dict             = session.precursor_effect or {}
         damage_modifier: float = mods.get("_damage_modifier", 0.0)
 
-        summary:     list[str] = []
-        interrupted            = False
+        summary:          list[str]      = []
+        damage_per_crew:  dict[str, int] = {p.crew_name: 0 for p in all_participants}
+        interrupted                      = False
 
         for cmd in commands:
             if interrupted:
@@ -181,6 +187,7 @@ class WorkService:
 
                     dead_names = []
                     for p in alive:
+                        damage_per_crew[p.crew_name] = damage_per_crew.get(p.crew_name, 0) + shared
                         if self._apply_damage(p, shared, damage_type):
                             dead_names.append(p.crew_name)
                     if dead_names:
@@ -208,16 +215,49 @@ class WorkService:
             self.db.commit()
             return {
                 "summary": summary, "interrupted": True,
+                "damage_per_crew": damage_per_crew,
                 "session_status": session.status, "session_result": "전멸 — 작업 실패",
             }
 
         session_result = self._finalize_if_all_done(session, cargo, all_participants)
         return {
             "summary": summary, "interrupted": interrupted,
+            "damage_per_crew": damage_per_crew,
             "session_status": session.status, "session_result": session_result,
         }
 
     # ── 내부 헬퍼 ─────────────────────────────────────────────────────────────
+
+    def _apply_default_equipment_penalty(self, session: WorkSession) -> list[dict]:
+        """기본 장비(is_default=True)를 모두 착용하지 않은 참여 승무원의 SP를 즉시 반감."""
+        default_equips = self.db.query(Equipment).filter(Equipment.is_default == True).all()
+        if not default_equips:
+            return []
+
+        default_ids = {e.id for e in default_equips}
+        crew_ids = [
+            sc.crew_id for sc in
+            self.db.query(WorkSessionCrew).filter(WorkSessionCrew.session_id == session.id).all()
+        ]
+        participants = self.db.query(Crew).filter(Crew.id.in_(crew_ids)).all() if crew_ids else []
+
+        penalized = []
+        for p in participants:
+            if p.is_dead:
+                continue
+            equipped_ids = {
+                ce.equipment_id for ce in
+                self.db.query(CrewEquipment).filter(
+                    CrewEquipment.crew_id == p.id,
+                    CrewEquipment.is_equipped == True,
+                ).all()
+            }
+            missing = [e.name for e in default_equips if e.id not in equipped_ids]
+            if missing:
+                p.sp = max(0, (p.sp or 0) // 2)
+                penalized.append({"crew": p.crew_name, "missing": missing, "sp_after": p.sp})
+
+        return penalized
 
     def _finalize_if_all_done(
         self,
@@ -318,6 +358,13 @@ class WorkService:
         """정신 붕괴. 랜덤 스탯 영구 -1, 2% 확률 즉사. 즉사 시 True 반환."""
         stat = random.choice(["health", "mentality", "strength", "inteligence", "luckiness"])
         setattr(crew, stat, max(1, (getattr(crew, stat) or 1) - 1))
+        # 체력·정신력 감소 시 max 재계산
+        max_hp, max_sp = compute_max_caps(
+            crew.health, crew.mentality,
+            crew.mechanization_lv or 0, crew.initial_mechanization_lv or 0,
+        )
+        crew.max_hp = max_hp
+        crew.max_sp = max_sp
         if random.random() < 0.02:
             self._kill(crew)
             return True

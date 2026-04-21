@@ -46,7 +46,7 @@ def show():
                         for i in range(10)
                     )
 
-                with cols[idx % 4]:
+                with cols[idx % 3]:
                     st.markdown(f"""
 <div style="background:#1e293b;border-radius:8px;padding:12px;margin-bottom:8px;">
   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">

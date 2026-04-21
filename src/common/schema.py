@@ -41,6 +41,11 @@ class DamageType(str, Enum):
     BOTH = "both"
 
 
+class EquipmentType(str, Enum):
+    WEAPON = "weapon"
+    ARMOR  = "armor"
+
+
 class PrecursorResult(str, Enum):
     """
     전조 판정 결과
@@ -50,3 +55,8 @@ class PrecursorResult(str, Enum):
     INVALID       = "invalid"
     FAIL          = "fail"
     CRITICAL_FAIL = "critical_fail"
+
+
+class ReIsolationStatus(str, Enum):
+    ACTIVE   = "active"
+    RESOLVED = "resolved"

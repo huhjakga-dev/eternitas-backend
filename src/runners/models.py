@@ -1,9 +1,10 @@
 import uuid
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, Float, ForeignKey, JSON, Enum as SQLEnum, Computed
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, Float, ForeignKey, JSON, Enum as SQLEnum
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.sql import func
 from src.database import Base
-from src.common.schema import CargoGrade, CrewType, DamageType
+from src.common.schema import CargoGrade, CrewType, DamageType, EquipmentType
+
 
 
 class Runner(Base):
@@ -30,17 +31,10 @@ class Crew(Base):
     strength         = Column(Integer, default=1)
     inteligence      = Column(Integer, default=1)
     luckiness        = Column(Integer, default=1)
-    mechanization_lv = Column(Integer, default=0)
-    max_hp           = Column(Integer, Computed(
-        "ROUND((health * 5) * CASE mechanization_lv "
-        "WHEN 2 THEN 1.1 WHEN 3 THEN 1.3 WHEN 4 THEN 1.5 ELSE 1.0 END)",
-        persisted=True
-    ))
-    max_sp           = Column(Integer, Computed(
-        "ROUND((mentality * 5) * CASE mechanization_lv "
-        "WHEN 2 THEN 0.8 WHEN 3 THEN 0.6 WHEN 4 THEN 0.5 ELSE 1.0 END)",
-        persisted=True
-    ))
+    mechanization_lv          = Column(Integer, default=0)
+    initial_mechanization_lv  = Column(Integer, default=0, nullable=False)
+    max_hp                    = Column(Integer)
+    max_sp                    = Column(Integer)
     hp         = Column(Integer)
     sp         = Column(Integer)
     token      = Column(Integer, default=0)
@@ -64,6 +58,7 @@ class Cargo(Base):
     strength         = Column(Float, default=0)
     inteligence      = Column(Float, default=0)
     cause            = Column(Float, default=0)
+    is_escaped       = Column(Boolean, default=False, nullable=False)
     success_count    = Column(Float, default=0)
     failure_count    = Column(Float, default=0)
     observation_rate  = Column(Float, default=0)   # 관측률
@@ -93,10 +88,11 @@ class CargoPattern(Base):
 class Equipment(Base):
     __tablename__ = "equipments"
     id             = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    name           = Column(String)
-    equipment_type = Column(String)
+    name           = Column(String, nullable=False, unique=True)
+    equipment_type = Column(SQLEnum(EquipmentType, values_callable=lambda x: [e.value for e in x]), nullable=False)
     effects        = Column(JSON)
     description    = Column(String)
+    is_default     = Column(Boolean, default=False, nullable=False)
     created_at     = Column(DateTime, server_default=func.now())
 
 
@@ -108,3 +104,23 @@ class CrewEquipment(Base):
     is_equipped  = Column(Boolean, default=True)
     acquired_at  = Column(DateTime, server_default=func.now())
     created_at   = Column(DateTime, server_default=func.now())
+
+
+class StatusEffect(Base):
+    """상태이상 정의 테이블"""
+    __tablename__ = "status_effects"
+    id               = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    name             = Column(String, nullable=False, unique=True)
+    description      = Column(String)
+    stat_json        = Column(JSON)   # 양수=버프, 음수=디버프
+    created_at       = Column(DateTime, server_default=func.now())
+
+
+class CrewStatusEffect(Base):
+    """승무원에게 적용된 상태이상"""
+    __tablename__ = "crew_status_effects"
+    id               = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    crew_id          = Column(UUID(as_uuid=True), ForeignKey("crews.id"), nullable=False)
+    status_effect_id = Column(UUID(as_uuid=True), ForeignKey("status_effects.id"), nullable=False)
+    note             = Column(String)
+    applied_at       = Column(DateTime, server_default=func.now())

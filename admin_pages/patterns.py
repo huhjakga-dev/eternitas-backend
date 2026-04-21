@@ -4,10 +4,20 @@ from admin_pages.admin_api import api
 st.image("eternitas_banner.png", use_container_width=True)
 st.title("화물 전조 패턴 등록")
 
-cargo_id = st.text_input("cargo_id (화물 생성시 뜨는거 복붙)", key="pattern_cargo_id")
+_, cargos_data = api("get", "/runners/cargo")
+cargos_data = cargos_data if isinstance(cargos_data, list) else []
+cargo_map   = {c["cargo_name"]: c["cargo_id"] for c in cargos_data}
+
+if not cargo_map:
+    st.warning("등록된 화물이 없습니다.")
+    st.stop()
+
+sel_cargo = st.selectbox("화물 선택", list(cargo_map.keys()), key="pattern_cargo")
+cargo_id  = cargo_map[sel_cargo]
+
 pattern_name = st.text_input("패턴 이름", key="pattern_name")
-description = st.text_area("전조 현상 설명 (작업 때 나올 내용)", key="pattern_desc")
-answer = st.text_area("전조 현상에 대한 정답", key="pattern_answer")
+description  = st.text_area("전조 현상 설명 (작업 때 나올 내용)", key="pattern_desc")
+answer       = st.text_area("전조 현상에 대한 정답", key="pattern_answer")
 
 st.markdown("**버프 (성공 시, 양수로 입력)**")
 bc1, bc2, bc3, bc4, bc5 = st.columns(5)
@@ -28,7 +38,7 @@ debuff_luck = dc5.number_input("행운 디버프",   value=0.0, step=0.1, key="d
 debuff_dmg_inc = st.number_input("데미지 증가율 (0~1, 양수로 입력)", 0.0, 1.0, 0.0, step=0.05, key="debuff_dmg_inc")
 instant_kill = st.checkbox("대실패 즉사 기믹 ON", value=False, key="instant_kill")
 
-if st.button("패턴 등록/수정"):
+if st.button("패턴 등록"):
     status, data = api("post", "/runners/cargo/pattern", json={
         "cargo_id": cargo_id, "pattern_name": pattern_name,
         "description": description, "answer": answer,

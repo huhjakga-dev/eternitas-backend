@@ -31,7 +31,10 @@ if runner_type == "승무원":
             "luckiness":        luckiness,
             "mechanization_lv": mech_lv,
         })
-        st.success(data) if status in (200, 201) else st.error(data)
+        if status in (200, 201):
+            st.success(data)
+        else:
+            st.error(data)
 
 else:
     cargo_code = st.text_input("화물 코드 (공개용)", key="cargo_code")
@@ -59,4 +62,7 @@ else:
             "strength":    strength, "inteligence": inteligence,
             "cause":       cause,
         })
-        st.success(data) if status in (200, 201) else st.error(data)
+        if status in (200, 201):
+            st.success(data)
+        else:
+            st.error(data)
