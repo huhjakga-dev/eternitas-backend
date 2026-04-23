@@ -8,28 +8,7 @@ from sqlalchemy.orm.attributes import flag_modified
 from .models import WorkSession, PrecursorLog, WorkLog, WorkSessionCrew
 from src.runners.models import Crew, Cargo, CargoPattern, Equipment, CrewEquipment
 from src.common.schema import WorkStatus, PrecursorResult, DamageType
-from src.common.utils import compute_max_caps
-
-
-# ── 판정 유틸리티 ──────────────────────────────────────────────────────────────
-
-def roll_vs_cargo(crew_stat: int, cargo_fixed: int) -> dict:
-    """화물/승무원 대항 판정: 승무원 1d(5×stat) vs 화물 고정값. 승무원 >= 화물이면 성공."""
-    crew_roll = random.randint(1, max(1, crew_stat * 5))
-    return {"crew_roll": crew_roll, "cargo_fixed": cargo_fixed, "success": crew_roll >= cargo_fixed}
-
-
-def roll_solo(crew_stat: int, threshold: int) -> dict:
-    """캐릭터 어필 판정: 1d(5×stat) vs 고정 성공치. 굴림 >= 성공치이면 성공."""
-    roll = random.randint(1, max(1, crew_stat * 5))
-    return {"roll": roll, "threshold": threshold, "success": roll >= threshold}
-
-
-def roll_vs_crew(stat_a: int, stat_b: int) -> dict:
-    """승무원 러너 대항: 각 1d(5×stat) 비교. a >= b이면 a 승리."""
-    roll_a = random.randint(1, max(1, stat_a * 5))
-    roll_b = random.randint(1, max(1, stat_b * 5))
-    return {"roll_a": roll_a, "roll_b": roll_b, "a_wins": roll_a >= roll_b}
+from src.common.utils import compute_max_caps, roll_vs_cargo
 
 
 class WorkService:
@@ -69,11 +48,9 @@ class WorkService:
         crew_stat_val  = int(getattr(crew, stat, 1) or 1)
         cargo_stat_val = int(cargo_stat_raw)
 
-        # 기본 장비(is_default=True) 미착용 승무원 SP 즉시 반감
         equipment_penalty = self._apply_default_equipment_penalty(session)
-
-        roll = roll_vs_cargo(crew_stat_val, cargo_stat_val)
-        auto_success = roll["success"]
+        roll              = roll_vs_cargo(crew_stat_val, cargo_stat_val)
+        auto_success      = roll["success"]
 
         if player_success and auto_success:
             result = PrecursorResult.SUCCESS
@@ -150,60 +127,18 @@ class WorkService:
 
         mods: dict             = session.precursor_effect or {}
         damage_modifier: float = mods.get("_damage_modifier", 0.0)
-
-        summary:          list[str]      = []
-        damage_per_crew:  dict[str, int] = {p.crew_name: 0 for p in all_participants}
-        interrupted                      = False
+        damage_per_crew        = {p.crew_name: 0 for p in all_participants}
+        summary: list[str]     = []
+        interrupted            = False
 
         for cmd in commands:
             if interrupted:
                 break
-
-            stat_buff: float = mods.get(cmd["stat"], 0.0)
-            effective_stat   = max(1, (getattr(crew, cmd["stat"], 1) or 1) + stat_buff)
-            cargo_fixed: int = int(getattr(cargo, cmd["stat"], 15) or 15) if cargo else 15
-
-            logs, ok, dmg, actual = [], 0, 0, 0
-
-            for i in range(1, cmd["count"] + 1):
-                if interrupted:
-                    break
-                actual += 1
-
-                roll = roll_vs_cargo(int(effective_stat), cargo_fixed)
-                c_roll = roll["crew_roll"]
-
-                if roll["success"]:
-                    ok += 1
-                    logs.append(f"제{i}턴: 성공 ({c_roll} vs {cargo_fixed})")
-                else:
-                    alive  = [p for p in all_participants if not p.is_dead]
-                    n      = max(len(alive), 1)
-                    raw    = max(1, round((cargo_fixed - c_roll) * damage_multiplier * (1 + damage_modifier)))
-                    shared = max(1, raw // n)
-                    note   = f" (전체 {raw} → {n}명 분산)" if n > 1 else ""
-                    logs.append(f"제{i}턴: 실패 ({c_roll} vs {cargo_fixed}) → -{shared}{note}")
-                    dmg += shared
-
-                    dead_names = []
-                    for p in alive:
-                        damage_per_crew[p.crew_name] = damage_per_crew.get(p.crew_name, 0) + shared
-                        if self._apply_damage(p, shared, damage_type):
-                            dead_names.append(p.crew_name)
-                    if dead_names:
-                        logs.append(f"사망: {', '.join(dead_names)}")
-
-                    if not any(not p.is_dead for p in all_participants):
-                        interrupted = True
-                        break
-
-            self.db.add(WorkLog(
-                session_id=session.id, crew_id=crew.id,
-                stat_type=cmd["stat"], planned_count=cmd["count"],
-                actual_count=actual, success_count=ok,
-                damage_taken=dmg, damage_type=damage_type, is_interrupted=interrupted,
-            ))
-            summary.append(f"[{cmd['stat'].upper()}] " + " / ".join(logs))
+            line, interrupted = self._execute_command(
+                session.id, cmd, crew, cargo, all_participants,
+                mods, damage_per_crew, damage_multiplier, damage_modifier, damage_type,
+            )
+            summary.append(line)
 
         self.db.commit()
 
@@ -227,6 +162,64 @@ class WorkService:
         }
 
     # ── 내부 헬퍼 ─────────────────────────────────────────────────────────────
+
+    def _execute_command(
+        self,
+        session_id: _uuid.UUID,
+        cmd: dict,
+        crew: Crew,
+        cargo: Optional[Cargo],
+        all_participants: list[Crew],
+        mods: dict,
+        damage_per_crew: dict[str, int],
+        damage_multiplier: float,
+        damage_modifier: float,
+        damage_type: DamageType,
+    ) -> tuple[str, bool]:
+        """단일 커맨드 블록(stat × count) 처리. (summary_line, interrupted) 반환."""
+        stat_buff      = float(mods.get(cmd["stat"], 0.0))
+        effective_stat = max(1, (getattr(crew, cmd["stat"], 1) or 1) + stat_buff)
+        cargo_fixed    = int(getattr(cargo, cmd["stat"], 15) or 15) if cargo else 15
+
+        logs, ok, dmg, actual = [], 0, 0, 0
+        interrupted = False
+
+        for i in range(1, cmd["count"] + 1):
+            actual += 1
+            roll   = roll_vs_cargo(int(effective_stat), cargo_fixed)
+            c_roll = roll["crew_roll"]
+
+            if roll["success"]:
+                ok += 1
+                logs.append(f"제{i}턴: 성공 ({c_roll} vs {cargo_fixed})")
+            else:
+                alive  = [p for p in all_participants if not p.is_dead]
+                n      = max(len(alive), 1)
+                raw    = max(1, round((cargo_fixed - c_roll) * damage_multiplier * (1 + damage_modifier)))
+                shared = max(1, raw // n)
+                note   = f" (전체 {raw} → {n}명 분산)" if n > 1 else ""
+                logs.append(f"제{i}턴: 실패 ({c_roll} vs {cargo_fixed}) → -{shared}{note}")
+                dmg += shared
+
+                dead_names = []
+                for p in alive:
+                    damage_per_crew[p.crew_name] = damage_per_crew.get(p.crew_name, 0) + shared
+                    if self._apply_damage(p, shared, damage_type):
+                        dead_names.append(p.crew_name)
+                if dead_names:
+                    logs.append(f"사망: {', '.join(dead_names)}")
+
+                if not any(not p.is_dead for p in all_participants):
+                    interrupted = True
+                    break
+
+        self.db.add(WorkLog(
+            session_id=session_id, crew_id=crew.id,
+            stat_type=cmd["stat"], planned_count=cmd["count"],
+            actual_count=actual, success_count=ok,
+            damage_taken=dmg, damage_type=damage_type, is_interrupted=interrupted,
+        ))
+        return f"[{cmd['stat'].upper()}] " + " / ".join(logs), interrupted
 
     def _apply_default_equipment_penalty(self, session: WorkSession) -> list[dict]:
         """기본 장비(is_default=True)를 모두 착용하지 않은 참여 승무원의 SP를 즉시 반감."""
@@ -321,7 +314,6 @@ class WorkService:
         """전조 결과에 따른 보정 delta 반환."""
         if result == PrecursorResult.INVALID:
             return {}
-
         if result == PrecursorResult.SUCCESS:
             mods = dict(pattern.buff_stat_json or {})
             if pattern.buff_damage_reduction:
@@ -358,13 +350,13 @@ class WorkService:
         """정신 붕괴. 랜덤 스탯 영구 -1, 2% 확률 즉사. 즉사 시 True 반환."""
         stat = random.choice(["health", "mentality", "strength", "inteligence", "luckiness"])
         setattr(crew, stat, max(1, (getattr(crew, stat) or 1) - 1))
-        # 체력·정신력 감소 시 max 재계산
-        max_hp, max_sp = compute_max_caps(
-            crew.health, crew.mentality,
-            crew.mechanization_lv or 0, crew.initial_mechanization_lv or 0,
-        )
-        crew.max_hp = max_hp
-        crew.max_sp = max_sp
+        if stat in ("health", "mentality"):
+            max_hp, max_sp = compute_max_caps(
+                crew.health, crew.mentality,
+                crew.mechanization_lv or 0, crew.initial_mechanization_lv or 0,
+            )
+            crew.max_hp = max_hp
+            crew.max_sp = max_sp
         if random.random() < 0.02:
             self._kill(crew)
             return True
@@ -372,6 +364,6 @@ class WorkService:
         return False
 
     def _kill(self, crew: Crew) -> None:
-        crew.hp = 0
-        crew.is_dead = True
+        crew.hp         = 0
+        crew.is_dead    = True
         crew.death_time = datetime.now(timezone.utc)

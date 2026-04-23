@@ -44,6 +44,27 @@ services:
       - 8.8.8.8
     restart: unless-stopped
 
+  cargo:
+    build: .
+    init: true
+    command: >
+      uv run streamlit run cargo_dashboard.py
+      --server.port 8504
+      --server.address 0.0.0.0
+      --server.headless true
+      --server.fileWatcherType poll
+    ports:
+      - "8504:8504"
+    env_file:
+      - .env
+    volumes:
+      - ./src:/app/src
+      - ./cargo_dashboard.py:/app/cargo_dashboard.py
+      - /Users/heojeongyun/Desktop/media/eternitas/eternitas_banner.png:/app/eternitas_banner.png
+    dns:
+      - 8.8.8.8
+    restart: unless-stopped
+
   admin:
     build: .
     init: true

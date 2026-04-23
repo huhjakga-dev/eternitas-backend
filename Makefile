@@ -6,7 +6,7 @@ down:
 	docker compose -f docker-compose.dashboard.yaml down
 	docker compose down
 
-restart:
+re:
 	$(MAKE) down
 	$(MAKE) up
 

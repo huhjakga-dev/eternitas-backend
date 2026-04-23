@@ -4,8 +4,9 @@ from datetime import datetime, timezone
 from sqlalchemy.orm import Session
 
 from .models import ReIsolationSession, ReIsolationSessionCrew, ReIsolationLog
-from src.runners.models import Crew, Cargo, Equipment, CrewEquipment
+from src.runners.models import Crew, Cargo
 from src.common.schema import ReIsolationStatus, DamageType
+from src.common.utils import get_equipped_weapon
 
 # ── 등급별 상수 ────────────────────────────────────────────────────────────────
 
@@ -31,29 +32,15 @@ GRADE_COUNTER: dict[str, tuple[int, int]] = {
 }
 
 
-def _get_equipped_weapon(db: Session, crew_id) -> dict:
-    """착용 중인 무기의 전투 스탯 반환. 미착용 시 기본값."""
-    row = (
-        db.query(CrewEquipment, Equipment)
-        .join(Equipment, Equipment.id == CrewEquipment.equipment_id)
-        .filter(
-            CrewEquipment.crew_id == crew_id,
-            CrewEquipment.is_equipped == True,
-            Equipment.equipment_type == "weapon",
-        )
-        .first()
-    )
-    if row:
-        _, eq = row
-        eff = eq.effects or {}
-        return {
-            "name":      eq.name,
-            "hit_bonus": int(eff.get("hit_bonus", 0)),
-            "damage_min": int(eff.get("damage_min", 1)),
-            "damage_max": int(max(eff.get("damage_max", 1), eff.get("damage_min", 1))),
-            "min_roll":  int(eff.get("min_roll", 0)),
-        }
-    return {"name": None, "hit_bonus": 0, "damage_min": 1, "damage_max": 3, "min_roll": 0}
+def _grade_str(cargo: Cargo) -> str:
+    return cargo.grade.value if hasattr(cargo.grade, "value") else str(cargo.grade)
+
+
+def _roll_with_weapon(crew: Crew, weapon: dict) -> int:
+    r = random.randint(1, max(1, (crew.luckiness or 1) * 5))
+    if weapon["min_roll"] > 0:
+        r = max(weapon["min_roll"], r)
+    return r + weapon["hit_bonus"]
 
 
 class ReIsolationService:
@@ -67,9 +54,9 @@ class ReIsolationService:
         if not cargo.is_escaped:
             return {"error": "탈출 상태가 아닌 화물입니다"}
 
-        grade_str = cargo.grade.value if hasattr(cargo.grade, "value") else str(cargo.grade)
-        max_hp    = GRADE_HP.get(grade_str, 100)
-        threshold = int((cargo.cause or 10) * 1.2) + GRADE_WEIGHT.get(grade_str, 5)
+        grade    = _grade_str(cargo)
+        max_hp   = GRADE_HP.get(grade, 100)
+        threshold = int((cargo.cause or 10) * 1.2) + GRADE_WEIGHT.get(grade, 5)
 
         session = ReIsolationSession(
             cargo_id=cargo_id,
@@ -85,11 +72,11 @@ class ReIsolationService:
 
         self.db.commit()
         return {
-            "session_id": str(session.id),
-            "cargo_name": cargo.cargo_name,
+            "session_id":  str(session.id),
+            "cargo_name":  cargo.cargo_name,
             "cargo_max_hp": max_hp,
-            "threshold": threshold,
-            "status": session.status,
+            "threshold":   threshold,
+            "status":      session.status,
         }
 
     def execute_attack(self, session: ReIsolationSession, crew_id: _uuid.UUID) -> dict:
@@ -102,16 +89,15 @@ class ReIsolationService:
         if crew.is_dead:
             return {"error": "사망 승무원은 공격 불가"}
 
-        cargo = self.db.query(Cargo).filter(Cargo.id == session.cargo_id).first()
-        grade_str = cargo.grade.value if hasattr(cargo.grade, "value") else str(cargo.grade)
-        threshold = int((cargo.cause or 10) * 1.2) + GRADE_WEIGHT.get(grade_str, 5)
-        counter_range = GRADE_COUNTER.get(grade_str, (3, 6))
+        cargo         = self.db.query(Cargo).filter(Cargo.id == session.cargo_id).first()
+        grade         = _grade_str(cargo)
+        threshold     = int((cargo.cause or 10) * 1.2) + GRADE_WEIGHT.get(grade, 5)
+        counter_range = GRADE_COUNTER.get(grade, (3, 6))
         damage_type   = cargo.damage_type if cargo else DamageType.HP
-
-        weapon = _get_equipped_weapon(self.db, crew_id)
+        weapon        = get_equipped_weapon(self.db, crew_id)
 
         # 공격 판정
-        raw_roll = random.randint(1, max(1, (crew.luckiness or 1) * 5))
+        raw_roll   = random.randint(1, max(1, (crew.luckiness or 1) * 5))
         if weapon["min_roll"] > 0:
             raw_roll = max(weapon["min_roll"], raw_roll)
         final_roll = raw_roll + weapon["hit_bonus"]
@@ -119,23 +105,12 @@ class ReIsolationService:
 
         damage_dealt = 0
         if success:
-            damage_dealt = random.randint(
-                max(1, weapon["damage_min"]),
-                max(1, weapon["damage_max"]),
-            )
+            damage_dealt = random.randint(max(1, weapon["damage_min"]), max(1, weapon["damage_max"]))
             session.cargo_current_hp = max(0, session.cargo_current_hp - damage_dealt)
 
         # 화물 반격
-        counter_dmg = random.randint(*counter_range)
-        crew_ids    = [
-            sc.crew_id for sc in
-            self.db.query(ReIsolationSessionCrew).filter(
-                ReIsolationSessionCrew.session_id == session.id
-            ).all()
-        ]
-        participants = (
-            self.db.query(Crew).filter(Crew.id.in_(crew_ids)).all() if crew_ids else [crew]
-        )
+        counter_dmg  = random.randint(*counter_range)
+        participants = self._get_participants(session)
         alive        = [p for p in participants if not p.is_dead]
         counter_kills = []
         for p in alive:
@@ -151,17 +126,16 @@ class ReIsolationService:
             counter_damage=counter_dmg,
         ))
 
-        resolved = False
-        final_result = None
+        resolved, final_result = False, None
         if session.cargo_current_hp <= 0:
-            session.status = ReIsolationStatus.RESOLVED
+            session.status   = ReIsolationStatus.RESOLVED
             cargo.is_escaped = False
-            final_result = "success"
-            resolved = True
+            final_result     = "success"
+            resolved         = True
         elif not any(not p.is_dead for p in participants):
             session.status = ReIsolationStatus.RESOLVED
-            final_result = "fail"
-            resolved = True
+            final_result   = "fail"
+            resolved       = True
 
         self.db.commit()
         return {
@@ -180,6 +154,14 @@ class ReIsolationService:
             "session_resolved": resolved,
             "final_result":     final_result,
         }
+
+    def _get_participants(self, session: ReIsolationSession) -> list[Crew]:
+        crew_ids = [
+            sc.crew_id for sc in
+            self.db.query(ReIsolationSessionCrew)
+            .filter(ReIsolationSessionCrew.session_id == session.id).all()
+        ]
+        return self.db.query(Crew).filter(Crew.id.in_(crew_ids)).all() if crew_ids else []
 
     def _apply_counter(self, crew: Crew, amount: int, damage_type: DamageType) -> None:
         if damage_type == DamageType.BOTH:
@@ -201,39 +183,29 @@ class ReIsolationService:
 # ── 승무원 vs 승무원 전투 ─────────────────────────────────────────────────────
 
 def crew_vs_crew_combat(db: Session, crew_a_id: _uuid.UUID, crew_b_id: _uuid.UUID) -> dict:
-    """
-    행운 + 무기 보정 대항. 높은 쪽이 승리, 상대에게 무기 데미지 적용.
-    """
+    """행운 + 무기 보정 대항. 높은 쪽이 승리, 상대에게 무기 데미지 적용."""
     crew_a = db.query(Crew).filter(Crew.id == crew_a_id).first()
     crew_b = db.query(Crew).filter(Crew.id == crew_b_id).first()
     if not crew_a or not crew_b:
         return {"error": "승무원 없음"}
 
-    weapon_a = _get_equipped_weapon(db, crew_a_id)
-    weapon_b = _get_equipped_weapon(db, crew_b_id)
+    weapon_a = get_equipped_weapon(db, crew_a_id)
+    weapon_b = get_equipped_weapon(db, crew_b_id)
 
-    def roll_with_weapon(crew, weapon) -> int:
-        r = random.randint(1, max(1, (crew.luckiness or 1) * 5))
-        if weapon["min_roll"] > 0:
-            r = max(weapon["min_roll"], r)
-        return r + weapon["hit_bonus"]
-
-    roll_a = roll_with_weapon(crew_a, weapon_a)
-    roll_b = roll_with_weapon(crew_b, weapon_b)
+    roll_a = _roll_with_weapon(crew_a, weapon_a)
+    roll_b = _roll_with_weapon(crew_b, weapon_b)
     a_wins = roll_a >= roll_b
 
-    winner = crew_a if a_wins else crew_b
-    loser  = crew_b if a_wins else crew_a
-    weapon_w = weapon_a if a_wins else weapon_b
+    winner, loser   = (crew_a, crew_b) if a_wins else (crew_b, crew_a)
+    weapon_w        = weapon_a if a_wins else weapon_b
 
-    damage = random.randint(max(1, weapon_w["damage_min"]), max(1, weapon_w["damage_max"]))
+    damage  = random.randint(max(1, weapon_w["damage_min"]), max(1, weapon_w["damage_max"]))
     loser.hp = max(0, (loser.hp or 0) - damage)
     if loser.hp <= 0 and not loser.is_dead:
         loser.is_dead    = True
         loser.death_time = datetime.now(timezone.utc)
 
     db.commit()
-
     return {
         "crew_a":       crew_a.crew_name,
         "roll_a":       roll_a,

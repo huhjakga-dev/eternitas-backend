@@ -24,7 +24,7 @@ GRADE_LABEL = {
     "standard":     "규격",
     "non_standard": "비규격",
     "overload":     "과적",
-    "fixed":        "고정",
+    "fixed":        "고착",
 }
 
 MECH = {0: "Lv.0", 1: "Lv.1", 2: "Lv.2", 3: "Lv.3", 4: "Lv.4"}
