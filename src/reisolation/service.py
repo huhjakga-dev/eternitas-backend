@@ -3,8 +3,8 @@ import uuid as _uuid
 from datetime import datetime, timezone
 from sqlalchemy.orm import Session
 
-from .models import ReIsolationSession, ReIsolationSessionCrew, ReIsolationLog
-from src.runners.models import Crew, Cargo
+from .models import ReIsolationSession, ReIsolationSessionCrew, ReIsolationLog, ReisolationPattern
+from src.runners.models import Crew, Cargo, CrewStatusEffect, StatusEffect
 from src.common.schema import ReIsolationStatus, DamageType
 from src.common.utils import get_equipped_weapon
 
@@ -128,10 +128,10 @@ class ReIsolationService:
 
         resolved, final_result = False, None
         if session.cargo_current_hp <= 0:
-            session.status   = ReIsolationStatus.RESOLVED
-            cargo.is_escaped = False
-            final_result     = "success"
-            resolved         = True
+            session.status = ReIsolationStatus.RESOLVED
+            self._isolate_cargo(cargo)
+            final_result   = "success"
+            resolved       = True
         elif not any(not p.is_dead for p in participants):
             session.status = ReIsolationStatus.RESOLVED
             final_result   = "fail"
@@ -155,6 +155,142 @@ class ReIsolationService:
             "final_result":     final_result,
         }
 
+    # ── 재격리 패턴 적용 ──────────────────────────────────────────────────────
+
+    def apply_pattern(
+        self,
+        session: ReIsolationSession,
+        pattern_id: _uuid.UUID,
+        crew_ids: list[_uuid.UUID],
+        stat: str | None,
+        response_success: bool | None,
+    ) -> dict:
+        """
+        재격리 패턴 적용.
+        - stat + crew_ids → 크루별 개별 주사위 판정
+        - response_success → 대응지문 판정 (전역)
+        - 둘 다: 대응지문 실패 → 전체 실패; 성공 → 주사위 결과 유지
+        unconditional_effects 항상 적용, conditional은 크루별 결과에 따라 적용.
+        """
+        pattern = self.db.query(ReisolationPattern).filter(ReisolationPattern.id == pattern_id).first()
+        if not pattern:
+            return {"error": "패턴 없음"}
+
+        cargo         = self.db.query(Cargo).filter(Cargo.id == session.cargo_id).first()
+        target_crews  = self.db.query(Crew).filter(Crew.id.in_(crew_ids)).all() if crew_ids else []
+
+        # ── 크루별 판정 결과 계산 ───────────────────────────────────────────
+        roll_details: dict[str, dict] = {}
+        crew_results: dict[_uuid.UUID, str | None] = {}
+
+        for crew in target_crews:
+            dice_result = None
+            if stat:
+                crew_stat  = max(1, int(getattr(crew, stat, 1) or 1))
+                cargo_stat = int(getattr(cargo, stat, 15) or 15) if cargo else 15
+                dice_max   = max(1, crew_stat * 5)
+                roll       = random.randint(1, dice_max)
+                roll_details[crew.crew_name] = {"roll": roll, "vs": cargo_stat, "dice": f"1d{dice_max}"}
+
+                if roll > cargo_stat:
+                    dice_result = "success"
+                elif random.random() < (pattern.critical_fail_rate or 0.05):
+                    dice_result = "critical_fail"
+                else:
+                    dice_result = "fail"
+
+            # 대응지문 결과 결합
+            if response_success is None:
+                overall = dice_result          # 주사위만 (없으면 None)
+            elif not response_success:
+                overall = "critical_fail" if dice_result == "critical_fail" else "fail"
+            else:
+                overall = dice_result if dice_result else "success"
+
+            crew_results[crew.id] = overall
+
+        # ── 효과 적용 ─────────────────────────────────────────────────────
+        effects_log:     list[str] = []
+        resolve_triggered          = False
+
+        # unconditional — 판정 무관 전체 적용
+        for effect in (pattern.unconditional_effects or []):
+            if self._apply_effect(effect, target_crews, effects_log):
+                resolve_triggered = True
+
+        # conditional — 크루별 결과에 따라 적용
+        for crew in target_crews:
+            result = crew_results.get(crew.id)
+            if result == "success":
+                effect_list = pattern.on_success_effects or []
+            elif result == "critical_fail":
+                effect_list = pattern.on_critical_fail_effects or []
+            elif result == "fail":
+                effect_list = pattern.on_fail_effects or []
+            else:
+                effect_list = []
+
+            for effect in effect_list:
+                if self._apply_effect(effect, [crew], effects_log):
+                    resolve_triggered = True
+
+        if resolve_triggered and session.status == ReIsolationStatus.ACTIVE:
+            session.status = ReIsolationStatus.RESOLVED
+            if cargo:
+                self._isolate_cargo(cargo)
+
+        self.db.commit()
+
+        return {
+            "pattern_name":   pattern.pattern_name,
+            "roll_details":   roll_details,
+            "crew_results":   {c.crew_name: crew_results.get(c.id) for c in target_crews},
+            "effects_applied": effects_log,
+            "resolved":        resolve_triggered,
+        }
+
+    def _apply_effect(self, effect: dict, targets: list[Crew], log: list[str]) -> bool:
+        """효과 1개 적용. resolve 트리거 시 True 반환."""
+        etype  = effect.get("type")
+        tmode  = effect.get("target", "random")
+        alive  = [c for c in targets if not c.is_dead]
+
+        if not alive and etype != "resolve":
+            return False
+
+        selected = [random.choice(alive)] if tmode == "random" else alive
+
+        if etype == "instant_kill":
+            for crew in selected:
+                crew.hp         = 0
+                crew.is_dead    = True
+                crew.death_time = datetime.now(timezone.utc)
+                log.append(f"{crew.crew_name} 즉사")
+
+        elif etype == "status_effect":
+            se_id = effect.get("status_effect_id")
+            if se_id:
+                for crew in selected:
+                    self.db.add(CrewStatusEffect(
+                        crew_id=crew.id,
+                        status_effect_id=_uuid.UUID(se_id),
+                    ))
+                    log.append(f"{crew.crew_name} 상태이상 부여")
+
+        elif etype == "damage":
+            amount    = int(effect.get("amount") or 0)
+            dtype_str = effect.get("damage_type", "hp")
+            dtype     = DamageType(dtype_str) if dtype_str in DamageType._value2member_map_ else DamageType.HP
+            for crew in selected:
+                self._apply_counter(crew, amount, dtype)
+                log.append(f"{crew.crew_name} -{amount} {dtype_str.upper()}")
+
+        elif etype == "resolve":
+            log.append("상황 해결 — 재격리 완료")
+            return True
+
+        return False
+
     def _get_participants(self, session: ReIsolationSession) -> list[Crew]:
         crew_ids = [
             sc.crew_id for sc in
@@ -162,6 +298,18 @@ class ReIsolationService:
             .filter(ReIsolationSessionCrew.session_id == session.id).all()
         ]
         return self.db.query(Crew).filter(Crew.id.in_(crew_ids)).all() if crew_ids else []
+
+    def _isolate_cargo(self, cargo: Cargo) -> None:
+        """화물 격리 처리: is_escaped=False + 해당 화물 참조 상태이상 전부 해제."""
+        cargo.is_escaped = False
+        se_ids = [
+            row.id for row in
+            self.db.query(StatusEffect).filter(StatusEffect.cargo_id == cargo.id).all()
+        ]
+        if se_ids:
+            self.db.query(CrewStatusEffect).filter(
+                CrewStatusEffect.status_effect_id.in_(se_ids)
+            ).delete(synchronize_session=False)
 
     def _apply_counter(self, crew: Crew, amount: int, damage_type: DamageType) -> None:
         if damage_type == DamageType.BOTH:

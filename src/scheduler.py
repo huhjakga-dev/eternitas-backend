@@ -4,10 +4,10 @@ from zoneinfo import ZoneInfo
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 from src.database import SessionLocal
-from src.runners.models import Crew
+from src.runners.models import Crew, StatusEffect, CrewStatusEffect, Cargo
 from src.works.models import WorkSession
 from src.train.models import TrainState
-from src.common.schema import WorkStatus
+from src.common.schema import WorkStatus, DamageType
 from src.common.utils import compute_max_caps
 
 _SEOUL = ZoneInfo("Asia/Seoul")
@@ -112,8 +112,86 @@ async def scheduled_train_speed():
         db.close()
 
 
+def _apply_tick_damage(crew: Crew, amount: int, damage_type: DamageType) -> None:
+    if damage_type == DamageType.BOTH:
+        hp_dmg, sp_dmg = amount // 2, amount - amount // 2
+    elif damage_type == DamageType.HP:
+        hp_dmg, sp_dmg = amount, 0
+    else:
+        hp_dmg, sp_dmg = 0, amount
+
+    if hp_dmg:
+        crew.hp = max(0, (crew.hp or 0) - hp_dmg)
+        if crew.hp <= 0 and not crew.is_dead:
+            crew.is_dead    = True
+            crew.death_time = datetime.now(timezone.utc)
+    if sp_dmg and not crew.is_dead:
+        crew.sp = max(0, (crew.sp or 0) - sp_dmg)
+
+
+async def scheduled_status_effect_tick():
+    """1분마다: 만료된 상태이상 해제 + 틱 데미지 적용."""
+    db = SessionLocal()
+    try:
+        now = datetime.now(timezone.utc)
+
+        # ── 지속 시간 만료된 상태이상 해제 ────────────────────────────────
+        expired = (
+            db.query(CrewStatusEffect)
+            .filter(
+                CrewStatusEffect.expires_at.isnot(None),
+                CrewStatusEffect.expires_at <= now,
+            )
+            .all()
+        )
+        for cse in expired:
+            db.delete(cse)
+        if expired:
+            db.commit()
+
+        # ── 틱 데미지 적용 ────────────────────────────────────────────────
+        rows = (
+            db.query(CrewStatusEffect, StatusEffect, Crew, Cargo)
+            .join(StatusEffect, CrewStatusEffect.status_effect_id == StatusEffect.id)
+            .join(Crew, CrewStatusEffect.crew_id == Crew.id)
+            .join(Cargo, StatusEffect.cargo_id == Cargo.id)
+            .filter(
+                StatusEffect.tick_damage.isnot(None),
+                StatusEffect.tick_interval_minutes.isnot(None),
+                Crew.is_dead == False,
+            )
+            .all()
+        )
+
+        to_delete = []
+        changed   = False
+        for cse, se, crew, cargo in rows:
+            interval = timedelta(minutes=se.tick_interval_minutes)
+            base     = cse.last_tick_at or cse.applied_at or now
+            if now - base < interval:
+                continue
+
+            dmg_type = DamageType(cargo.damage_type) if cargo.damage_type else DamageType.HP
+            _apply_tick_damage(crew, se.tick_damage, dmg_type)
+            cse.last_tick_at = now
+            cse.tick_count   = (cse.tick_count or 0) + 1
+            changed = True
+
+            if se.max_ticks and cse.tick_count >= se.max_ticks:
+                to_delete.append(cse)
+
+        for cse in to_delete:
+            db.delete(cse)
+
+        if changed or to_delete:
+            db.commit()
+    finally:
+        db.close()
+
+
 def setup_scheduler() -> AsyncIOScheduler:
-    scheduler.add_job(scheduled_resurrect,       "interval", minutes=1)
-    scheduler.add_job(scheduled_midnight_recovery, "cron",   hour=0,  minute=0)
-    scheduler.add_job(scheduled_train_speed,       "cron",   hour=12, minute=0)
+    scheduler.add_job(scheduled_resurrect,          "interval", minutes=1)
+    scheduler.add_job(scheduled_status_effect_tick, "interval", minutes=1)
+    scheduler.add_job(scheduled_midnight_recovery,  "cron",     hour=0,  minute=0)
+    scheduler.add_job(scheduled_train_speed,        "cron",     hour=12, minute=0)
     return scheduler

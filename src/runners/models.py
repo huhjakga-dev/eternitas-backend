@@ -109,11 +109,16 @@ class CrewEquipment(Base):
 class StatusEffect(Base):
     """상태이상 정의 테이블"""
     __tablename__ = "status_effects"
-    id               = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    name             = Column(String, nullable=False, unique=True)
-    description      = Column(String)
-    stat_json        = Column(JSON)   # 양수=버프, 음수=디버프
-    created_at       = Column(DateTime, server_default=func.now())
+    id                     = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    name                   = Column(String, nullable=False, unique=True)
+    description            = Column(String)
+    stat_json              = Column(JSON)
+    cargo_id               = Column(UUID(as_uuid=True), ForeignKey("cargos.id"), nullable=False)
+    tick_damage            = Column(Integer, nullable=True)   # 주기 데미지량
+    tick_interval_minutes  = Column(Integer, nullable=True)   # 틱 주기(분)
+    duration_minutes       = Column(Integer, nullable=True)   # 지속 시간(분) — 초과 시 자동 해제
+    max_ticks              = Column(Integer, nullable=True)   # 최대 틱 횟수 — 초과 시 자동 해제
+    created_at             = Column(DateTime, server_default=func.now())
 
 
 class CrewStatusEffect(Base):
@@ -124,3 +129,6 @@ class CrewStatusEffect(Base):
     status_effect_id = Column(UUID(as_uuid=True), ForeignKey("status_effects.id"), nullable=False)
     note             = Column(String)
     applied_at       = Column(DateTime, server_default=func.now())
+    expires_at       = Column(DateTime, nullable=True)   # duration_minutes 기준으로 적용 시 계산
+    last_tick_at     = Column(DateTime, nullable=True)
+    tick_count       = Column(Integer, default=0, nullable=False)

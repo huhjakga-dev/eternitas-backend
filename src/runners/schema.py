@@ -62,9 +62,14 @@ class CreateEquipment(BaseModel):
 
 
 class CreateStatusEffect(BaseModel):
-    name:        str
-    description: Optional[str] = None
-    stat_json:   StatModifier  = StatModifier()
+    name:                  str
+    cargo_id:              str             # 참조 화물 (필수 — 피해 유형 상속 + 격리 시 자동 해제 기준)
+    description:           Optional[str] = None
+    stat_json:             StatModifier  = StatModifier()
+    tick_damage:           Optional[int] = None   # 주기 데미지량
+    tick_interval_minutes: Optional[int] = None   # 틱 주기(분)
+    duration_minutes:      Optional[int] = None   # 지속 시간(분)
+    max_ticks:             Optional[int] = None   # 최대 틱 횟수
 
 
 class HpSpDelta(BaseModel):

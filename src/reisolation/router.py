@@ -2,8 +2,8 @@ import uuid as _uuid
 from fastapi import APIRouter, HTTPException
 from src.database import DbSession
 from src.common.schema import ReIsolationStatus
-from .models import ReIsolationSession, ReIsolationSessionCrew
-from .schema import CreateReIsolationSession, ReIsolationAttack
+from .models import ReIsolationSession, ReIsolationSessionCrew, ReisolationPattern
+from .schema import CreateReIsolationSession, ReIsolationAttack, CreateReisolationPattern, ApplyPatternBody
 from .service import ReIsolationService, crew_vs_crew_combat
 
 router = APIRouter(prefix="/reisolation", tags=["ReIsolation"])
@@ -59,6 +59,76 @@ async def attack(session_id: str, body: ReIsolationAttack, db: DbSession) -> dic
         raise HTTPException(status_code=404, detail="세션 없음")
 
     result = ReIsolationService(db).execute_attack(session, _uuid.UUID(body.crew_id))
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result
+
+
+@router.post("/patterns")
+async def create_pattern(body: CreateReisolationPattern, db: DbSession) -> dict:
+    """재격리 패턴 생성."""
+    from src.runners.models import Cargo
+    cargo = db.query(Cargo).filter(Cargo.id == _uuid.UUID(body.cargo_id)).first()
+    if not cargo:
+        raise HTTPException(status_code=404, detail="화물 없음")
+
+    pattern = ReisolationPattern(
+        cargo_id=_uuid.UUID(body.cargo_id),
+        pattern_name=body.pattern_name,
+        description=body.description,
+        stat=body.stat,
+        critical_fail_rate=body.critical_fail_rate,
+        unconditional_effects=[e.model_dump(exclude_none=True) for e in body.unconditional_effects],
+        on_success_effects=[e.model_dump(exclude_none=True) for e in body.on_success_effects],
+        on_fail_effects=[e.model_dump(exclude_none=True) for e in body.on_fail_effects],
+        on_critical_fail_effects=[e.model_dump(exclude_none=True) for e in body.on_critical_fail_effects],
+    )
+    db.add(pattern)
+    db.commit()
+    db.refresh(pattern)
+    return {"pattern_id": str(pattern.id), "pattern_name": pattern.pattern_name}
+
+
+@router.get("/cargo/{cargo_id}/patterns")
+async def list_patterns(cargo_id: str, db: DbSession) -> list[dict]:
+    """화물의 재격리 패턴 목록."""
+    patterns = (
+        db.query(ReisolationPattern)
+        .filter(ReisolationPattern.cargo_id == _uuid.UUID(cargo_id))
+        .all()
+    )
+    return [
+        {
+            "pattern_id":              str(p.id),
+            "pattern_name":            p.pattern_name,
+            "description":             p.description,
+            "stat":                    p.stat,
+            "critical_fail_rate":      p.critical_fail_rate,
+            "unconditional_effects":   p.unconditional_effects,
+            "on_success_effects":      p.on_success_effects,
+            "on_fail_effects":         p.on_fail_effects,
+            "on_critical_fail_effects": p.on_critical_fail_effects,
+        }
+        for p in patterns
+    ]
+
+
+@router.post("/sessions/{session_id}/apply-pattern")
+async def apply_pattern(session_id: str, body: ApplyPatternBody, db: DbSession) -> dict:
+    """재격리 패턴 적용 (주사위 판정 + 대응지문 판정 + 효과 적용)."""
+    session = db.query(ReIsolationSession).filter(
+        ReIsolationSession.id == _uuid.UUID(session_id)
+    ).first()
+    if not session:
+        raise HTTPException(status_code=404, detail="세션 없음")
+
+    result = ReIsolationService(db).apply_pattern(
+        session,
+        _uuid.UUID(body.pattern_id),
+        [_uuid.UUID(cid) for cid in body.crew_ids],
+        body.stat,
+        body.response_success,
+    )
     if "error" in result:
         raise HTTPException(status_code=400, detail=result["error"])
     return result

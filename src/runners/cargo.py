@@ -51,7 +51,7 @@ async def list_cargos(db: DbSession) -> list[dict]:
     """등록된 화물 목록."""
     return [
         {"cargo_id": str(c.id), "cargo_name": c.cargo_name, "grade": c.grade,
-         "observation_rate": c.observation_rate, "is_escaped": c.is_escaped}
+         "damage_type": c.damage_type, "observation_rate": c.observation_rate, "is_escaped": c.is_escaped}
         for c in db.query(Cargo).all()
     ]
 

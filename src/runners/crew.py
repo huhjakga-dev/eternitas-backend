@@ -162,13 +162,22 @@ async def get_crew_status_effects(crew_id: str, db: DbSession) -> list[dict]:
 @router.post("/crew/{crew_id}/status-effect")
 async def apply_status_effect(crew_id: str, status_effect_id: str, db: DbSession, note: str = None) -> dict:
     """승무원에게 상태이상 적용."""
+    from datetime import datetime, timezone, timedelta
     crew_uuid = _uuid.UUID(crew_id)
     se_uuid   = _uuid.UUID(status_effect_id)
     if not db.query(Crew).filter(Crew.id == crew_uuid).first():
         raise HTTPException(status_code=404, detail="승무원 없음")
-    if not db.query(StatusEffect).filter(StatusEffect.id == se_uuid).first():
+    se = db.query(StatusEffect).filter(StatusEffect.id == se_uuid).first()
+    if not se:
         raise HTTPException(status_code=404, detail="상태이상 없음")
-    cse = CrewStatusEffect(crew_id=crew_uuid, status_effect_id=se_uuid, note=note)
+
+    now        = datetime.now(timezone.utc)
+    expires_at = (now + timedelta(minutes=se.duration_minutes)) if se.duration_minutes else None
+
+    cse = CrewStatusEffect(
+        crew_id=crew_uuid, status_effect_id=se_uuid,
+        note=note, expires_at=expires_at, tick_count=0,
+    )
     db.add(cse)
     db.commit()
     return {"crew_status_effect_id": str(cse.id), "crew_id": crew_id, "status_effect_id": status_effect_id}

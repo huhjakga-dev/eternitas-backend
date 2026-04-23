@@ -202,7 +202,7 @@ def main():
                 "정신력":    c.mentality or 0,
                 "근력":      c.strength or 0,
                 "지력":      c.inteligence or 0,
-                "원인력":    c.cause or 0,
+                "인과":    c.cause or 0,
                 "총 턴":     c.total_turns or 0,
                 "탈출":      "탈출 중" if c.is_escaped else "수용 중",
             })
@@ -231,7 +231,7 @@ def main():
                 "정신력":    st.column_config.NumberColumn("정신력",  width="small"),
                 "근력":      st.column_config.NumberColumn("근력",    width="small"),
                 "지력":      st.column_config.NumberColumn("지력",    width="small"),
-                "원인력":    st.column_config.NumberColumn("원인력",  width="small"),
+                "인과":    st.column_config.NumberColumn("인과",  width="small"),
                 "총 턴":     st.column_config.NumberColumn("총 턴",   width="small"),
                 "탈출":      st.column_config.TextColumn("탈출",      width="small"),
             },
@@ -278,7 +278,7 @@ def main():
                 f'정신력 {_stat_pips(c.mentality or 0)}<br>'
                 f'근력 {_stat_pips(c.strength or 0)}<br>'
                 f'지력 {_stat_pips(c.inteligence or 0)}<br>'
-                f'원인력 {_stat_pips(c.cause or 0)}'
+                f'인과 {_stat_pips(c.cause or 0)}'
             )
 
             escaped_badge = (

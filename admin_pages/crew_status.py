@@ -9,9 +9,12 @@ st.title("승무원 상태 관리")
 
 tabs = st.tabs(["상태 변경", "상태이상 등록", "상태이상 적용"])
 
-_, crews_data = api("get", "/runners/crew")
-crews_data = crews_data if isinstance(crews_data, list) else []
-crew_map = {c["crew_name"]: c["crew_id"] for c in crews_data}
+_, crews_data  = api("get", "/runners/crew")
+_, cargos_data = api("get", "/runners/cargo")
+crews_data  = crews_data  if isinstance(crews_data,  list) else []
+cargos_data = cargos_data if isinstance(cargos_data, list) else []
+crew_map  = {c["crew_name"]:  c["crew_id"]  for c in crews_data}
+cargo_map = {c["cargo_name"]: c["cargo_id"] for c in cargos_data}
 
 _, se_data = api("get", "/runners/status-effects")
 se_data = se_data if isinstance(se_data, list) else []
@@ -59,6 +62,7 @@ with tabs[1]:
 
     se_name = st.text_input("상태이상 이름", key="se_name")
     se_desc = st.text_input("설명 (선택)", key="se_desc")
+
     st.markdown("**스탯 영향** (양수=버프, 음수=디버프)")
     sc1, sc2, sc3, sc4, sc5 = st.columns(5)
     se_hp   = sc1.number_input("체력",   value=0.0, step=0.1, key="se_hp")
@@ -67,19 +71,57 @@ with tabs[1]:
     se_int  = sc4.number_input("지력",   value=0.0, step=0.1, key="se_int")
     se_luck = sc5.number_input("행운",   value=0.0, step=0.1, key="se_luck")
 
+    if not cargo_map:
+        st.warning("등록된 화물이 없습니다.")
+        st.stop()
+
+    se_cargo_label = st.selectbox("참조 화물", list(cargo_map.keys()), key="se_cargo",
+                                   help="해당 화물이 격리될 때 이 상태이상이 자동 해제됩니다.")
+    se_cargo_id = cargo_map[se_cargo_label]
+
+    st.markdown("**주기 데미지** (선택)")
+    se_use_tick = st.checkbox("주기 데미지 사용", key="se_use_tick")
+    se_tick_dmg = None
+    se_tick_int = None
+    if se_use_tick:
+        tc1, tc2 = st.columns(2)
+        se_tick_dmg = tc1.number_input("틱당 데미지", min_value=1, value=3, key="se_tick_dmg")
+        se_tick_int = tc2.number_input("주기 (분)", min_value=1, value=10, key="se_tick_int")
+        st.caption(f"→ {se_tick_int}분마다 화물 피해 유형으로 {se_tick_dmg} 데미지")
+
+    st.markdown("**만료 조건** (선택 — 둘 다 설정 시 먼저 도달한 조건으로 해제)")
+    ex1, ex2 = st.columns(2)
+    se_duration = ex1.number_input("지속 시간 (분, 0=무제한)", min_value=0, value=0, key="se_duration")
+    se_max_ticks = ex2.number_input("최대 틱 횟수 (0=무제한)", min_value=0, value=0, key="se_max_ticks")
+    if se_duration or se_max_ticks:
+        parts = []
+        if se_duration:
+            parts.append(f"{se_duration}분 경과")
+        if se_max_ticks:
+            parts.append(f"틱 {se_max_ticks}회 도달")
+        st.caption(f"→ {' 또는 '.join(parts)} 시 자동 해제 (화물 격리 시도 해제)")
+
     if st.button("상태이상 등록", key="btn_se_reg"):
-        s, d = api("post", "/runners/status-effects", json={
-            "name": se_name,
-            "description": se_desc or None,
-            "stat_json": {
-                "health": se_hp, "mentality": se_sp, "strength": se_str,
-                "inteligence": se_int, "luckiness": se_luck,
-            },
-        })
-        if s in (200, 201):
-            st.success(d)
+        if not se_name.strip():
+            st.error("상태이상 이름을 입력해주세요.")
         else:
-            st.error(d)
+            s, d = api("post", "/runners/status-effects", json={
+                "name":        se_name.strip(),
+                "cargo_id":    se_cargo_id,
+                "description": se_desc or None,
+                "stat_json": {
+                    "health": se_hp, "mentality": se_sp, "strength": se_str,
+                    "inteligence": se_int, "luckiness": se_luck,
+                },
+                "tick_damage":           int(se_tick_dmg) if se_use_tick and se_tick_dmg else None,
+                "tick_interval_minutes": int(se_tick_int) if se_use_tick and se_tick_int else None,
+                "duration_minutes":      int(se_duration)  if se_duration  else None,
+                "max_ticks":             int(se_max_ticks) if se_max_ticks else None,
+            })
+            if s in (200, 201):
+                st.success(d)
+            else:
+                st.error(d)
 
 # ── 상태이상 적용 / 해제 ──────────────────────────────────────────────────────
 with tabs[2]:
