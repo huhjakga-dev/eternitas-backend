@@ -1,5 +1,5 @@
 import uuid as _uuid
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from fastapi import APIRouter, HTTPException
 from src.database import DbSession
 from src.common.utils import compute_max_caps
@@ -153,8 +153,18 @@ async def get_crew_status_effects(crew_id: str, db: DbSession) -> list[dict]:
         .all()
     )
     return [
-        {"crew_status_effect_id": str(cse.id), "status_effect_id": str(se.id),
-         "name": se.name, "stat_json": se.stat_json, "note": cse.note, "applied_at": cse.applied_at}
+        {
+            "crew_status_effect_id": str(cse.id),
+            "status_effect_id":      str(se.id),
+            "name":                  se.name,
+            "stat_json":             se.stat_json,
+            "note":                  cse.note,
+            "applied_at":            cse.applied_at,
+            "expires_at":            cse.expires_at,
+            "tick_count":            cse.tick_count,
+            "max_ticks":             se.max_ticks,
+            "tick_interval_minutes": se.tick_interval_minutes,
+        }
         for cse, se in rows
     ]
 
@@ -162,7 +172,6 @@ async def get_crew_status_effects(crew_id: str, db: DbSession) -> list[dict]:
 @router.post("/crew/{crew_id}/status-effect")
 async def apply_status_effect(crew_id: str, status_effect_id: str, db: DbSession, note: str = None) -> dict:
     """승무원에게 상태이상 적용."""
-    from datetime import datetime, timezone, timedelta
     crew_uuid = _uuid.UUID(crew_id)
     se_uuid   = _uuid.UUID(status_effect_id)
     if not db.query(Crew).filter(Crew.id == crew_uuid).first():

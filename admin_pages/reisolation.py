@@ -9,13 +9,17 @@ st.title("재격리 관리")
 
 tabs = st.tabs(["세션 목록", "세션 생성", "공격 판정", "패턴 등록", "패턴 이벤트", "승무원 전투", "탈출 처리"])
 
-_, crews_data    = api("get", "/runners/crew")
-_, cargos_data   = api("get", "/runners/cargo")
-_, sessions_data = api("get", "/reisolation/sessions")
+_, crews_data      = api("get", "/runners/crew")
+_, cargos_data     = api("get", "/runners/cargo")
+_, sessions_data   = api("get", "/reisolation/sessions")
+_, se_data         = api("get", "/runners/status-effects")
 
 crews_data    = crews_data    if isinstance(crews_data, list)    else []
 cargos_data   = cargos_data   if isinstance(cargos_data, list)   else []
 sessions_data = sessions_data if isinstance(sessions_data, list) else []
+se_data       = se_data       if isinstance(se_data, list)       else []
+
+se_map = {se["name"]: se["status_effect_id"] for se in se_data}  # 이름 → ID
 
 crew_map      = {c["crew_name"]: c["crew_id"]   for c in crews_data}
 cargo_map     = {c["cargo_name"]: c["cargo_id"] for c in cargos_data}
@@ -207,7 +211,17 @@ with tabs[3]:
                                               index=["random","all"].index(eff.get("target","random")),
                                               key=f"{prefix}_g{i}")
                 if eff["type"] == "status_effect":
-                    eff["status_effect_id"] = c3.text_input("상태이상 ID", value=eff.get("status_effect_id",""), key=f"{prefix}_se{i}")
+                    if se_map:
+                        se_names = list(se_map.keys())
+                        cur_id   = eff.get("status_effect_id", "")
+                        cur_name = next((n for n, sid in se_map.items() if sid == cur_id), se_names[0])
+                        sel_name = c3.selectbox("상태이상", se_names,
+                                                 index=se_names.index(cur_name),
+                                                 key=f"{prefix}_se{i}")
+                        eff["status_effect_id"] = se_map[sel_name]
+                    else:
+                        c3.caption("등록된 상태이상 없음")
+                        eff["status_effect_id"] = ""
                     eff.pop("amount", None); eff.pop("damage_type", None)
                 elif eff["type"] == "damage":
                     eff["amount"]      = c3.number_input("데미지량", 1, 999, eff.get("amount", 10), key=f"{prefix}_amt{i}")

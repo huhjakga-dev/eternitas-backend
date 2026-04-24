@@ -81,7 +81,20 @@ async def main_work(session_id: str, body: MainWorkBody, db: DbSession) -> dict:
     session = db.query(WorkSession).filter(WorkSession.id == uuid.UUID(session_id)).first()
     if not session:
         raise HTTPException(status_code=404, detail="session 없음")
+    if session.status == WorkStatus.RESOLVED:
+        raise HTTPException(status_code=400, detail="이미 종료된 세션입니다.")
+    if session.status == WorkStatus.WAITING_PRECURSOR:
+        raise HTTPException(status_code=400, detail="전조 판정이 완료되지 않은 세션입니다.")
 
     result = WorkService(db).handle_main_work_execution(session, uuid.UUID(body.crew_id), [c.model_dump() for c in body.commands])
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
     db.refresh(session)
-    return {"session_id": session_id, "session_status": session.status, "detail": result}
+    return {
+        "session_id":     session_id,
+        "session_status": session.status,
+        "summary":        result.get("summary", []),
+        "damage_per_crew": result.get("damage_per_crew", {}),
+        "session_result": result.get("session_result"),
+        "interrupted":    result.get("interrupted", False),
+    }

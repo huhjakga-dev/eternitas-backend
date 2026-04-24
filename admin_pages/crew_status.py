@@ -99,7 +99,7 @@ with tabs[1]:
             parts.append(f"{se_duration}분 경과")
         if se_max_ticks:
             parts.append(f"틱 {se_max_ticks}회 도달")
-        st.caption(f"→ {' 또는 '.join(parts)} 시 자동 해제 (화물 격리 시도 해제)")
+        st.caption(f"→ {' 또는 '.join(parts)} 시 자동 해제 (또는 화물 격리 시 해제)")
 
     if st.button("상태이상 등록", key="btn_se_reg"):
         if not se_name.strip():
@@ -140,9 +140,16 @@ with tabs[2]:
         cs2, cd2 = api("get", f"/runners/crew/{cid2}/status-effects")
         if cs2 == 200 and cd2:
             for item in cd2:
-                col_name, col_note, col_rm = st.columns([3, 3, 1])
+                col_name, col_info, col_rm = st.columns([3, 4, 1])
                 col_name.write(f"**{item['name']}**")
-                col_note.write(item.get("note") or "—")
+                info_parts = []
+                if item.get("expires_at"):
+                    info_parts.append(f"만료: {item['expires_at'][:16]}")
+                if item.get("max_ticks"):
+                    info_parts.append(f"틱 {item.get('tick_count', 0)}/{item['max_ticks']}")
+                if item.get("tick_interval_minutes"):
+                    info_parts.append(f"{item['tick_interval_minutes']}분 주기")
+                col_info.caption("  |  ".join(info_parts) if info_parts else (item.get("note") or "화물 격리 시 해제"))
                 if col_rm.button("해제", key=f"rm_se_{item['crew_status_effect_id']}"):
                     rs, rd = api("delete", f"/runners/crew/{cid2}/status-effect/{item['crew_status_effect_id']}")
                     if rs == 200:

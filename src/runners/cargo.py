@@ -109,22 +109,3 @@ async def list_cargo_patterns(cargo_id: str, db: DbSession) -> list[dict]:
     ]
 
 
-@router.get("/cargo/{cargo_id}/pattern")
-async def get_cargo_pattern(cargo_id: str, db: DbSession) -> dict:
-    """화물의 전조 패턴 단건 조회."""
-    try:
-        cargo_uuid = _uuid.UUID(cargo_id)
-    except ValueError:
-        raise HTTPException(status_code=422, detail="cargo_id가 유효한 UUID가 아닙니다.")
-
-    pattern = db.query(CargoPattern).filter(CargoPattern.cargo_id == cargo_uuid).first()
-    if not pattern:
-        raise HTTPException(status_code=404, detail="패턴 없음")
-
-    return {
-        "pattern_id": str(pattern.id), "cargo_id": str(pattern.cargo_id),
-        "pattern_name": pattern.pattern_name, "description": pattern.description,
-        "buff_stat_json": pattern.buff_stat_json, "buff_damage_reduction": pattern.buff_damage_reduction,
-        "debuff_stat_json": pattern.debuff_stat_json, "debuff_demage_increase": pattern.debuff_demage_increase,
-        "instant_kill": pattern.instant_kill,
-    }

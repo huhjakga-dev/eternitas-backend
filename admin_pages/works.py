@@ -28,12 +28,11 @@ def _show_copyable(text: str):
 
 
 def _fmt_precursor(pattern_name: str, stat_ko: str, data: dict) -> str:
-    detail = data.get("detail", {})
-    result_val  = detail.get("result", "")
-    result_str  = _RESULT_KO.get(result_val, result_val)
-    roll        = detail.get("roll_detail", {})
-    applied     = detail.get("applied_effect", {})
-    kill_detail = detail.get("kill_detail")
+    result_val     = data.get("result", "")
+    result_str     = _RESULT_KO.get(result_val, result_val)
+    roll           = data.get("roll_detail", {})
+    applied        = data.get("applied_effect", {})
+    kill_detail    = data.get("kill_detail")
     session_status = data.get("session_status", "")
 
     lines = ["■ 전조 판정 결과", f"패턴: {pattern_name}", ""]
