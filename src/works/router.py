@@ -250,22 +250,33 @@ async def run_gimmick(session_id: str, body: RunGimmickBody, db: DbSession) -> d
                 log_lines.append(f"{crew.crew_name} ({gimmick.stat}={val}) — 생존")
 
     elif gimmick.action_type == "apply_damage":
-        dmg_type = DamageType(gimmick.damage_type) if gimmick.damage_type else DamageType.HP
+        dmg_type  = DamageType(gimmick.damage_type) if gimmick.damage_type else DamageType.HP
+        dmg_calc  = gimmick.damage_calc or "fixed"
         for crew in alive:
+            if dmg_calc == "percent_hp":
+                amount = max(1, round((crew.max_hp or crew.hp or 0) * gimmick.amount / 100))
+                label  = f"최대HP {gimmick.amount}%({amount})"
+            elif dmg_calc == "percent_sp":
+                amount = max(1, round((crew.max_sp or crew.sp or 0) * gimmick.amount / 100))
+                label  = f"최대SP {gimmick.amount}%({amount})"
+            else:
+                amount = gimmick.amount
+                label  = str(amount)
+
             if dmg_type == DamageType.HP:
-                crew.hp = max(0, (crew.hp or 0) - gimmick.amount)
+                crew.hp = max(0, (crew.hp or 0) - amount)
                 if crew.hp <= 0 and not crew.is_dead:
                     crew.is_dead = True
                     crew.death_time = datetime.now(timezone.utc)
-                    log_lines.append(f"{crew.crew_name} — {gimmick.amount} HP 피해 → 사망")
+                    log_lines.append(f"{crew.crew_name} — HP {label} 피해 → 사망")
                 else:
-                    log_lines.append(f"{crew.crew_name} — {gimmick.amount} HP 피해 (잔여 {crew.hp})")
+                    log_lines.append(f"{crew.crew_name} — HP {label} 피해 (잔여 {crew.hp})")
             elif dmg_type == DamageType.SP:
-                crew.sp = max(0, (crew.sp or 0) - gimmick.amount)
-                log_lines.append(f"{crew.crew_name} — {gimmick.amount} SP 피해 (잔여 {crew.sp})")
+                crew.sp = max(0, (crew.sp or 0) - amount)
+                log_lines.append(f"{crew.crew_name} — SP {label} 피해 (잔여 {crew.sp})")
             else:  # BOTH
-                h = gimmick.amount // 2
-                s = gimmick.amount - h
+                h = amount // 2
+                s = amount - h
                 crew.hp = max(0, (crew.hp or 0) - h)
                 crew.sp = max(0, (crew.sp or 0) - s)
                 if crew.hp <= 0 and not crew.is_dead:

@@ -291,7 +291,13 @@ with tabs[3]:
                     if gm["action_type"] == "kill_if_stat":
                         desc = f"[{gm['stat']} {_OP_KO2.get(gm.get('operator',''),'?')} {gm.get('threshold','?')}] 즉사"
                     elif gm["action_type"] == "apply_damage":
-                        desc = f"[{gm.get('damage_type','hp').upper()} {gm.get('amount','?')} 피해]"
+                        calc = gm.get("damage_calc", "fixed")
+                        if calc == "percent_hp":
+                            desc = f"[최대HP {gm.get('amount','?')}% {gm.get('damage_type','hp').upper()} 피해]"
+                        elif calc == "percent_sp":
+                            desc = f"[최대SP {gm.get('amount','?')}% {gm.get('damage_type','hp').upper()} 피해]"
+                        else:
+                            desc = f"[{gm.get('damage_type','hp').upper()} {gm.get('amount','?')} 피해]"
                     else:
                         desc = "[상태이상 적용]"
                     col_n, col_d, col_rm = st.columns([3, 4, 1])
@@ -312,6 +318,13 @@ with tabs[3]:
         gm_desc       = st.text_input("설명 (선택)", key="gm_desc")
         gm_sort       = st.number_input("실행 순서", min_value=0, value=0, step=1, key="gm_sort")
 
+        # 패턴 연결 (선택)
+        _, gm_patterns = api("get", f"/runners/cargo/{gm_cargo_id}/patterns")
+        gm_patterns = gm_patterns if isinstance(gm_patterns, list) else []
+        gm_pattern_opts = {"연결 안 함": None} | {p["pattern_name"]: p["pattern_id"] for p in gm_patterns}
+        gm_pattern_ko   = st.selectbox("연결할 전조 패턴 (선택)", list(gm_pattern_opts.keys()), key="gm_pattern")
+        gm_pattern_id   = gm_pattern_opts[gm_pattern_ko]
+
         _ACTION_OPTS = {
             "스탯 조건 즉사": "kill_if_stat",
             "고정 피해":       "apply_damage",
@@ -321,7 +334,7 @@ with tabs[3]:
         gm_action     = _ACTION_OPTS[gm_action_ko]
 
         gm_stat = gm_op = gm_threshold = None
-        gm_amount = gm_dmg_type = None
+        gm_amount = gm_dmg_type = gm_dmg_calc = None
         gm_se_id = None
 
         if gm_action == "kill_if_stat":
@@ -335,10 +348,21 @@ with tabs[3]:
             st.caption(f"→ {gm_stat_ko}이 {gm_op_ko.split('(')[0].strip()} {gm_threshold}인 승무원 즉사")
 
         elif gm_action == "apply_damage":
+            _CALC_OPTS = {
+                "고정 수치":            "fixed",
+                "대상 최대HP %":        "percent_hp",
+                "대상 최대SP %":        "percent_sp",
+            }
+            gm_calc_ko  = st.radio("피해 계산 방식", list(_CALC_OPTS.keys()), horizontal=True, key="gm_dmg_calc")
+            gm_dmg_calc = _CALC_OPTS[gm_calc_ko]
+
             kd1, kd2 = st.columns(2)
-            gm_amount   = kd1.number_input("피해량", min_value=1, value=10, key="gm_amount")
+            _amt_label = "퍼센트 (%)" if gm_dmg_calc != "fixed" else "피해량"
+            gm_amount   = kd1.number_input(_amt_label, min_value=1, value=30 if gm_dmg_calc != "fixed" else 10, key="gm_amount")
             gm_dmg_type = kd2.selectbox("피해 유형", ["hp", "sp", "both"], key="gm_dmg_type",
                                          format_func=lambda x: {"hp":"HP","sp":"SP","both":"HP·SP"}[x])
+            if gm_dmg_calc != "fixed":
+                st.caption(f"→ 대상 승무원 최대{'HP' if gm_dmg_calc == 'percent_hp' else 'SP'}의 {gm_amount}% 피해")
 
         elif gm_action == "apply_status_effect":
             if not se_map:
@@ -364,7 +388,9 @@ with tabs[3]:
                     "threshold":        int(gm_threshold) if gm_threshold is not None else None,
                     "amount":           int(gm_amount) if gm_amount else None,
                     "damage_type":      gm_dmg_type,
+                    "damage_calc":      gm_dmg_calc or "fixed",
                     "status_effect_id": gm_se_id,
+                    "pattern_id":       gm_pattern_id,
                     "sort_order":       int(gm_sort),
                 })
                 if s in (200, 201):

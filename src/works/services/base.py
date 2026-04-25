@@ -174,7 +174,8 @@ class GenericCargoService(BaseCargoService):
         if not pattern:
             return {"log": ["패턴을 찾을 수 없습니다."], "resolved": False}
 
-        log = [f"■ 전조: {pattern.pattern_name}", f"결과: {result}", ""]
+        _RESULT_KO = {"success": "성공", "fail": "실패", "critical_fail": "대실패"}
+        log = [f"■ 전조: {pattern.pattern_name}", f"결과: {_RESULT_KO.get(result, result)}", ""]
 
         if result == "success":
             mods = dict(pattern.buff_stat_json or {})
@@ -203,5 +204,4 @@ class GenericCargoService(BaseCargoService):
                 log.append("디버프 적용: " + ", ".join(f"{k} {v:+}" for k, v in mods.items() if k != "_damage_modifier"))
 
         self.session.status = WorkStatus.MAIN_WORK_READY
-        log.append(f"\n세션 상태: {self.session.status}")
         return {"log": log, "resolved": False}

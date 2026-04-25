@@ -136,9 +136,11 @@ class CargoGimmick(Base):
     threshold        = Column(Integer, nullable=True)
     # apply_damage 전용
     amount           = Column(Integer, nullable=True)
-    damage_type      = Column(String, nullable=True)
+    damage_type      = Column(String, nullable=True)   # hp / sp / both
+    damage_calc      = Column(String, default="fixed") # fixed / percent_hp / percent_sp
     # apply_status_effect 전용
     status_effect_id = Column(UUID(as_uuid=True), ForeignKey("status_effects.id"), nullable=True)
+    pattern_id       = Column(UUID(as_uuid=True), ForeignKey("cargo_patterns.id"), nullable=True)
     sort_order       = Column(Integer, default=0)
     created_at       = Column(DateTime, server_default=func.now())
 
