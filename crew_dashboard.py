@@ -45,6 +45,21 @@ def fetch_crews(db):
         ORDER BY c.crew_name
     """)).fetchall()
 
+def fetch_status_effects_by_crew(db, crew_ids: list[str]):
+    if not crew_ids:
+        return {}
+    rows = db.execute(text("""
+        SELECT cse.crew_id::text, se.name
+        FROM crew_status_effects cse
+        JOIN status_effects se ON se.id = cse.status_effect_id
+        WHERE cse.crew_id = ANY(CAST(:ids AS uuid[]))
+    """), {"ids": crew_ids}).fetchall()
+    result: dict[str, list] = {}
+    for crew_id, name in rows:
+        result.setdefault(crew_id, []).append(name)
+    return result
+
+
 def fetch_equipments_by_crew(db, crew_ids: list[str]):
     if not crew_ids:
         return {}
@@ -69,8 +84,9 @@ def fetch_equipments_by_crew(db, crew_ids: list[str]):
 
 MECH = {0: "Lv.0", 1: "Lv.1", 2: "Lv.2", 3: "Lv.3", 4: "Lv.4"}
 
-def status_label(is_dead, is_active):
-    if is_dead:    return "사망"
+def status_label(is_dead, is_active, has_se=False):
+    if is_dead:       return "사망"
+    if has_se:        return "상태이상"
     if not is_active: return "비활성"
     return "활성"
 
@@ -98,7 +114,8 @@ def main():
     try:
         crews = fetch_crews(db)
         crew_ids = [c.id for c in crews]
-        eq_map  = fetch_equipments_by_crew(db, crew_ids)
+        eq_map = fetch_equipments_by_crew(db, crew_ids)
+        se_map = fetch_status_effects_by_crew(db, crew_ids)
     except Exception as e:
         st.error(f"DB 오류: {e}")
         return
@@ -121,6 +138,7 @@ def main():
             max_hp   = c.max_hp or 1
             max_sp   = c.max_sp or 1
             eqs      = eq_map.get(c.id, [])
+            effects  = se_map.get(c.id, [])
             eq_str   = ", ".join(
                 f"{'[착용]' if e.is_equipped else '[미착용]'}{e.name}"
                 for e in eqs
@@ -130,7 +148,8 @@ def main():
             revive_str = (death_kst + timedelta(hours=1)).strftime("%H:%M")   if death_kst else "—"
             rows.append({
                 "이름":       c.crew_name,
-                "상태":       status_label(c.is_dead, c.is_active),
+                "상태":       status_label(c.is_dead, c.is_active, bool(effects)),
+                "상태이상":   ", ".join(effects) if effects else "—",
                 "HP":         (c.hp or 0) / max_hp,
                 "HP 수치":    f"{c.hp or 0}/{max_hp}",
                 "SP":         (c.sp or 0) / max_sp,
@@ -174,9 +193,10 @@ def main():
                 "행운":     st.column_config.NumberColumn("행운",   width="small"),
                 "기계화":   st.column_config.TextColumn("기계화",  width="small"),
                 "토큰":     st.column_config.NumberColumn("토큰",   width="small"),
-                "장비":     st.column_config.TextColumn("장비",     width="medium"),
-                "사망 시각":st.column_config.TextColumn("사망 시각",width="small"),
-                "부활 시각":st.column_config.TextColumn("부활 시각",width="small"),
+                "상태이상": st.column_config.TextColumn("상태이상",  width="medium"),
+                "장비":     st.column_config.TextColumn("장비",      width="medium"),
+                "사망 시각":st.column_config.TextColumn("사망 시각", width="small"),
+                "부활 시각":st.column_config.TextColumn("부활 시각", width="small"),
             },
             height=min(80 + len(rows) * 35, 700),
         )
@@ -184,10 +204,10 @@ def main():
         # 요약 지표
         st.divider()
         m1, m2, m3, m4 = st.columns(4)
-        m1.metric("전체 승무원",  len(crews))
-        m2.metric("활성",         sum(1 for c in crews if not c.is_dead and c.is_active))
-        m3.metric("비활성",       sum(1 for c in crews if not c.is_dead and not c.is_active))
-        m4.metric("사망",         sum(1 for c in crews if c.is_dead))
+        m1.metric("전체 승무원",    len(crews))
+        m2.metric("활성",           sum(1 for c in crews if not c.is_dead and not se_map.get(c.id)))
+        m3.metric("상태이상 적용",  sum(1 for c in crews if not c.is_dead and se_map.get(c.id)))
+        m4.metric("사망",           sum(1 for c in crews if c.is_dead))
 
     # ── 카드 뷰 ──────────────────────────────────────────────────────────────
     else:
@@ -202,7 +222,7 @@ def main():
         def pip(val):
             return "".join(
                 f'<span style="display:inline-block;width:11px;height:11px;border-radius:2px;'
-                f'margin:1px;background:{"#4ade80" if i < val else "#374151"};"></span>'
+                f'margin:1px;background:{"#FBBF24" if i < val else "#374151"};"></span>'
                 for i in range(10)
             )
 
@@ -213,8 +233,10 @@ def main():
             max_hp      = c.max_hp or 1
             max_sp      = c.max_sp or 1
             eqs         = eq_map.get(c.id, [])
-            badge_color = "#ef4444" if c.is_dead else ("#6b7280" if not c.is_active else "#22c55e")
-            card_bg     = "#3b0a0a" if c.is_dead else "#1e293b"
+            effects     = se_map.get(c.id, [])
+            has_se      = bool(effects)
+            badge_color = "#ef4444" if c.is_dead else ("#a855f7" if has_se else ("#6b7280" if not c.is_active else "#22c55e"))
+            card_bg     = "#3b0a0a" if c.is_dead else ("#1e1b2e" if has_se else "#1e293b")
             divider_color = "#6b2020" if c.is_dead else "#334155"
 
             death_kst   = c.death_time_utc + timedelta(hours=9) if c.death_time_utc else None
@@ -242,15 +264,16 @@ def main():
 <div style="background:{card_bg};border-radius:8px;padding:12px;margin-bottom:8px;">
   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
     <b style="font-size:1rem;color:#f1f5f9;">{c.crew_name}</b>
-    <span style="font-size:0.72rem;color:{badge_color};">{status_label(c.is_dead, c.is_active)}</span>
+    <span style="font-size:0.72rem;color:{badge_color};">{status_label(c.is_dead, c.is_active, has_se)}</span>
   </div>
+  {''.join(f'<span style="background:#6d28d9;color:#e9d5ff;font-size:0.65rem;padding:1px 7px;border-radius:10px;margin:1px;">{e}</span>' for e in effects) + ('<br>' if effects else '')}
   <div style="display:flex;justify-content:space-between;font-size:0.72rem;color:#64748b;margin-bottom:8px;">
     <span>기계화 {MECH.get(c.mechanization_lv or 0, '—')}</span>
     <span style="color:#ffb716;">토큰 {c.token or 0}</span>
   </div>
   {death_block}
-  {bar(c.hp or 0, max_hp, '#ef4444')}
-  {bar(c.sp or 0, max_sp, '#3b82f6')}
+  {bar(c.hp or 0, max_hp, '#FBBF24')}
+  {bar(c.sp or 0, max_sp, '#FDE047')}
   <div style="margin-top:8px;font-size:0.72rem;color:#9ca3af;">
     체력 {pip(c.health or 0)}<br>
     정신력 {pip(c.mentality or 0)}<br>

@@ -75,8 +75,8 @@ def fetch_patterns_by_cargo(db, cargo_ids: list[str]):
 # ── 상수 ──────────────────────────────────────────────────────────────────────
 
 GRADE_KR = {
-    "standard":     "표준",
-    "non_standard": "비표준",
+    "standard":     "규격",
+    "non_standard": "비규격",
     "overload":     "과적",
     "fixed":        "고착",
 }
@@ -97,7 +97,7 @@ def _stat_pips(val: float, max_val: int = 50) -> str:
     filled = min(int(val / max_val * 10), 10)
     return "".join(
         f'<span style="display:inline-block;width:11px;height:11px;border-radius:2px;'
-        f'margin:1px;background:{"#f87171" if i < filled else "#374151"};"></span>'
+        f'margin:1px;background:{"#FBBF24" if i < filled else "#374151"};"></span>'
         for i in range(10)
     )
 

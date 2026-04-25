@@ -2,9 +2,9 @@ import uuid as _uuid
 from datetime import datetime, timezone, timedelta
 from fastapi import APIRouter, HTTPException
 from src.database import DbSession
-from src.common.utils import compute_max_caps
+from src.common.utils import compute_max_caps, roll_solo, roll_vs_crew
 from .models import Crew, Equipment, CrewEquipment, StatusEffect, CrewStatusEffect
-from .schema import CreateCrewRunner, HpSpDelta
+from .schema import CreateCrewRunner, HpSpDelta, RollAppealBody, RollVsRunnerBody
 
 router = APIRouter()
 
@@ -40,7 +40,7 @@ async def list_crews(db: DbSession) -> list[dict]:
     """등록된 승무원 목록."""
     return [
         {"crew_id": str(c.id), "crew_name": c.crew_name, "hp": c.hp, "sp": c.sp,
-         "is_active": c.is_active, "is_dead": c.is_dead}
+         "is_active": c.is_active, "is_dead": c.is_dead, "token": c.token or 0}
         for c in db.query(Crew).all()
     ]
 
@@ -71,6 +71,62 @@ async def adjust_hp_sp(crew_id: str, body: HpSpDelta, db: DbSession) -> dict:
     db.commit()
     return {"crew_id": crew_id, "crew_name": crew.crew_name,
             "hp": crew.hp, "max_hp": max_hp, "sp": crew.sp, "max_sp": max_sp}
+
+
+@router.patch("/crew/{crew_id}/token")
+async def adjust_token(crew_id: str, delta: int, db: DbSession) -> dict:
+    """승무원 토큰 증감. 양수=지급, 음수=차감. 0 미만 클램핑."""
+    crew = db.query(Crew).filter(Crew.id == _uuid.UUID(crew_id)).first()
+    if not crew:
+        raise HTTPException(status_code=404, detail="승무원 없음")
+    crew.token = max(0, (crew.token or 0) + delta)
+    db.commit()
+    return {"crew_id": crew_id, "crew_name": crew.crew_name, "token": crew.token}
+
+
+# ── 판정 ─────────────────────────────────────────────────────────────────────
+
+@router.post("/crew/roll/appeal")
+async def roll_appeal(body: RollAppealBody, db: DbSession) -> dict:
+    """캐릭터 어필: 1d(stat×5) vs 고정 성공치. 이상이면 성공."""
+    crew = db.query(Crew).filter(Crew.id == _uuid.UUID(body.crew_id)).first()
+    if not crew:
+        raise HTTPException(status_code=404, detail="승무원 없음")
+    stat_val = int(getattr(crew, body.stat, 1) or 1)
+    result   = roll_solo(stat_val, body.threshold)
+    return {
+        "crew_name": crew.crew_name,
+        "stat":      body.stat,
+        "dice":      f"1d{stat_val * 5}",
+        "roll":      result["roll"],
+        "threshold": body.threshold,
+        "success":   result["success"],
+    }
+
+
+@router.post("/crew/roll/vs-runner")
+async def roll_vs_runner(body: RollVsRunnerBody, db: DbSession) -> dict:
+    """러너 대항: 각 스탯으로 1d(stat×5) 굴려 높은 쪽 승리. 데미지 없음."""
+    crew_a = db.query(Crew).filter(Crew.id == _uuid.UUID(body.crew_a_id)).first()
+    crew_b = db.query(Crew).filter(Crew.id == _uuid.UUID(body.crew_b_id)).first()
+    if not crew_a or not crew_b:
+        raise HTTPException(status_code=404, detail="승무원 없음")
+    stat_a  = int(getattr(crew_a, body.stat, 1) or 1)
+    stat_b  = int(getattr(crew_b, body.stat, 1) or 1)
+    result  = roll_vs_crew(stat_a, stat_b)
+    winner  = crew_a.crew_name if result["a_wins"] else crew_b.crew_name
+    return {
+        "crew_a":    crew_a.crew_name,
+        "stat_a":    body.stat,
+        "dice_a":    f"1d{stat_a * 5}",
+        "roll_a":    result["roll_a"],
+        "crew_b":    crew_b.crew_name,
+        "stat_b":    body.stat,
+        "dice_b":    f"1d{stat_b * 5}",
+        "roll_b":    result["roll_b"],
+        "winner":    winner,
+        "a_wins":    result["a_wins"],
+    }
 
 
 # ── 승무원 장비 ───────────────────────────────────────────────────────────────

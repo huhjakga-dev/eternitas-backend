@@ -1,8 +1,10 @@
 import uuid as _uuid
 from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
+from typing import Optional, Literal
 from src.database import DbSession
 from src.common.schema import CargoGrade
-from .models import Cargo, CargoPattern
+from .models import Cargo, CargoPattern, CargoGimmick
 from .schema import CreateCargoRunner, CreateCargoPattern
 
 router = APIRouter()
@@ -51,7 +53,8 @@ async def list_cargos(db: DbSession) -> list[dict]:
     """등록된 화물 목록."""
     return [
         {"cargo_id": str(c.id), "cargo_name": c.cargo_name, "grade": c.grade,
-         "damage_type": c.damage_type, "observation_rate": c.observation_rate, "is_escaped": c.is_escaped}
+         "damage_type": c.damage_type, "observation_rate": c.observation_rate,
+         "is_escaped": c.is_escaped, "total_turns": c.total_turns}
         for c in db.query(Cargo).all()
     ]
 
@@ -107,5 +110,86 @@ async def list_cargo_patterns(cargo_id: str, db: DbSession) -> list[dict]:
         {"pattern_id": str(p.id), "pattern_name": p.pattern_name, "description": p.description}
         for p in patterns
     ]
+
+
+# ── 화물 기믹 ──────────────────────────────────────────────────────────────────
+
+class CreateGimmick(BaseModel):
+    name:             str
+    description:      Optional[str] = None
+    action_type:      Literal["kill_if_stat", "apply_damage", "apply_status_effect"]
+    stat:             Optional[str] = None
+    operator:         Optional[Literal["lte", "lt", "gte", "gt", "eq"]] = None
+    threshold:        Optional[int] = None
+    amount:           Optional[int] = None
+    damage_type:      Optional[str] = None
+    status_effect_id: Optional[str] = None
+    sort_order:       int = 0
+
+
+@router.post("/cargo/{cargo_id}/gimmicks")
+async def create_gimmick(cargo_id: str, body: CreateGimmick, db: DbSession) -> dict:
+    """화물 특수 기믹 등록."""
+    cargo_uuid = _uuid.UUID(cargo_id)
+    if not db.query(Cargo).filter(Cargo.id == cargo_uuid).first():
+        raise HTTPException(status_code=404, detail="화물 없음")
+
+    g = CargoGimmick(
+        cargo_id         = cargo_uuid,
+        name             = body.name,
+        description      = body.description,
+        action_type      = body.action_type,
+        stat             = body.stat,
+        operator         = body.operator,
+        threshold        = body.threshold,
+        amount           = body.amount,
+        damage_type      = body.damage_type,
+        status_effect_id = _uuid.UUID(body.status_effect_id) if body.status_effect_id else None,
+        sort_order       = body.sort_order,
+    )
+    db.add(g)
+    db.commit()
+    return {"gimmick_id": str(g.id), "name": g.name}
+
+
+@router.get("/cargo/{cargo_id}/gimmicks")
+async def list_gimmicks(cargo_id: str, db: DbSession) -> list[dict]:
+    """화물 기믹 목록 (sort_order 순)."""
+    gimmicks = (
+        db.query(CargoGimmick)
+        .filter(CargoGimmick.cargo_id == _uuid.UUID(cargo_id))
+        .order_by(CargoGimmick.sort_order)
+        .all()
+    )
+    return [
+        {
+            "gimmick_id":      str(g.id),
+            "name":            g.name,
+            "description":     g.description,
+            "action_type":     g.action_type,
+            "stat":            g.stat,
+            "operator":        g.operator,
+            "threshold":       g.threshold,
+            "amount":          g.amount,
+            "damage_type":     g.damage_type,
+            "status_effect_id": str(g.status_effect_id) if g.status_effect_id else None,
+            "sort_order":      g.sort_order,
+        }
+        for g in gimmicks
+    ]
+
+
+@router.delete("/cargo/{cargo_id}/gimmicks/{gimmick_id}")
+async def delete_gimmick(cargo_id: str, gimmick_id: str, db: DbSession) -> dict:
+    """기믹 삭제."""
+    g = db.query(CargoGimmick).filter(
+        CargoGimmick.id == _uuid.UUID(gimmick_id),
+        CargoGimmick.cargo_id == _uuid.UUID(cargo_id),
+    ).first()
+    if not g:
+        raise HTTPException(status_code=404, detail="기믹 없음")
+    db.delete(g)
+    db.commit()
+    return {"detail": "삭제 완료"}
 
 

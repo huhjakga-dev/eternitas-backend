@@ -6,6 +6,7 @@ from src.works.router import router as works_router
 from src.runners.router import router as runners_router
 from src.train.router import router as train_router
 from src.reisolation.router import router as reisolation_router
+from src.admin.router import router as admin_router
 
 
 @asynccontextmanager
@@ -26,6 +27,7 @@ app.include_router(runners_router)
 app.include_router(works_router)
 app.include_router(train_router)
 app.include_router(reisolation_router)
+app.include_router(admin_router)
 
 
 @app.get("/health")

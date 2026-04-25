@@ -206,6 +206,14 @@ class WorkService:
                     damage_per_crew[p.crew_name] = damage_per_crew.get(p.crew_name, 0) + shared
                     if self._apply_damage(p, shared, damage_type):
                         dead_names.append(p.crew_name)
+                        if p.id != crew.id:
+                            self.db.add(WorkLog(
+                                session_id=session_id, crew_id=p.id,
+                                stat_type=cmd["stat"], planned_count=0,
+                                actual_count=0, success_count=0,
+                                damage_taken=shared, damage_type=damage_type,
+                                is_interrupted=True,
+                            ))
                 if dead_names:
                     logs.append(f"사망: {', '.join(dead_names)}")
 
@@ -340,8 +348,9 @@ class WorkService:
                 return True
 
         if sp_dmg and not crew.is_dead:
-            crew.sp = max(0, (crew.sp or 0) - sp_dmg)
-            if crew.sp <= 0:
+            sp_before = crew.sp or 0
+            crew.sp = max(0, sp_before - sp_dmg)
+            if crew.sp <= 0 and sp_before > 0:
                 return self._mental_collapse(crew)
 
         return False

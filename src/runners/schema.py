@@ -1,5 +1,5 @@
 from pydantic import BaseModel, model_validator
-from typing import Optional, Annotated
+from typing import Optional, Annotated, Literal
 from annotated_types import Ge, Le
 from src.common.schema import CargoGrade, CrewType, DamageType, EquipmentType
 
@@ -70,6 +70,23 @@ class CreateStatusEffect(BaseModel):
     tick_interval_minutes: Optional[int] = None   # 틱 주기(분)
     duration_minutes:      Optional[int] = None   # 지속 시간(분)
     max_ticks:             Optional[int] = None   # 최대 틱 횟수
+
+
+StatType = Literal["health", "mentality", "strength", "inteligence", "luckiness"]
+
+
+class RollAppealBody(BaseModel):
+    """캐릭터 어필: 1d(stat×5) vs 고정 성공치."""
+    crew_id:   str
+    stat:      StatType
+    threshold: int
+
+
+class RollVsRunnerBody(BaseModel):
+    """러너 대항: 각 스탯으로 주사위 비교, 높은 쪽 승리."""
+    crew_a_id: str
+    crew_b_id: str
+    stat:      StatType
 
 
 class HpSpDelta(BaseModel):

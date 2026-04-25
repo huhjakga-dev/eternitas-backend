@@ -1,7 +1,10 @@
 import uuid as _uuid
 from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
+from typing import Optional
 from src.database import DbSession
 from src.common.schema import ReIsolationStatus
+from src.runners.models import Cargo, Crew
 from .models import ReIsolationSession, ReIsolationSessionCrew, ReisolationPattern
 from .schema import CreateReIsolationSession, ReIsolationAttack, CreateReisolationPattern, ApplyPatternBody
 from .service import ReIsolationService, crew_vs_crew_combat
@@ -132,6 +135,52 @@ async def apply_pattern(session_id: str, body: ApplyPatternBody, db: DbSession) 
     if "error" in result:
         raise HTTPException(status_code=400, detail=result["error"])
     return result
+
+
+class CargoPatternBody(BaseModel):
+    session_id:       str
+    crew_ids:         list[str] = []
+    stat:             Optional[str]  = None
+    response_success: Optional[bool] = None
+
+
+@router.post("/cargo/{cargo_id}/pattern/{pattern_id}")
+async def cargo_pattern(
+    cargo_id: str, pattern_id: str, body: CargoPatternBody, db: DbSession
+) -> dict:
+    """
+    화물·패턴별 재격리 패턴 실행. 화물에 등록된 서비스 클래스로 디스패치.
+    등록된 서비스가 없으면 DB 패턴 기반 범용 처리.
+    """
+    from src.reisolation.services.registry import get_reisolation_service
+
+    session = db.query(ReIsolationSession).filter(ReIsolationSession.id == _uuid.UUID(body.session_id)).first()
+    if not session:
+        raise HTTPException(status_code=404, detail="세션 없음")
+    if session.status == ReIsolationStatus.RESOLVED:
+        raise HTTPException(status_code=400, detail="이미 종료된 세션")
+
+    cargo = db.query(Cargo).filter(Cargo.id == _uuid.UUID(cargo_id)).first()
+    if not cargo:
+        raise HTTPException(status_code=404, detail="화물 없음")
+
+    service_class = get_reisolation_service(cargo.cargo_name)
+    service       = service_class(db, session, cargo)
+    result        = service.run_pattern(
+        _uuid.UUID(pattern_id),
+        [_uuid.UUID(cid) for cid in body.crew_ids],
+        body.stat,
+        body.response_success,
+    )
+
+    db.commit()
+    db.refresh(session)
+
+    return {
+        **result,
+        "log_text":       "\n".join(result.get("log", [])),
+        "session_status": session.status,
+    }
 
 
 @router.post("/crew-combat")

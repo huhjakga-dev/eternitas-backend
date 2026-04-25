@@ -24,11 +24,13 @@ import pathlib
 _here = pathlib.Path(__file__).parent
 
 pg = st.navigation([
+    st.Page(str(_here / "admin_pages" / "workflow.py"),    title="작업 진행",    icon=":material/play_circle:"),
     st.Page(str(_here / "admin_pages" / "runners.py"),     title="러너 등록",    icon=":material/person_add:"),
     st.Page(str(_here / "admin_pages" / "patterns.py"),    title="패턴 등록",    icon=":material/pattern:"),
     st.Page(str(_here / "admin_pages" / "equipments.py"),  title="장비 관리",    icon=":material/shield:"),
     st.Page(str(_here / "admin_pages" / "works.py"),       title="작업 관리",    icon=":material/build:"),
     st.Page(str(_here / "admin_pages" / "reisolation.py"), title="재격리 관리",  icon=":material/lock_reset:"),
     st.Page(str(_here / "admin_pages" / "crew_status.py"), title="승무원 상태",  icon=":material/medical_services:"),
+    st.Page(str(_here / "admin_pages" / "reset.py"),       title="데이터 초기화", icon=":material/restart_alt:"),
 ])
 pg.run()

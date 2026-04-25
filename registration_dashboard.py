@@ -41,13 +41,31 @@ def get_db():
 def fetch_crews(db):
     return db.execute(text("""
         SELECT
+            c.id,
             c.crew_name,
             c.crew_type,
             c.health, c.mentality, c.strength, c.inteligence, c.luckiness,
-            c.mechanization_lv
+            c.mechanization_lv,
+            c.is_dead,
+            c.is_active,
+            c.hp, c.max_hp, c.sp, c.max_sp,
+            c.token
         FROM crews c
         ORDER BY c.crew_type, c.crew_name
     """)).fetchall()
+
+
+def fetch_crew_status_effects(db):
+    """각 승무원에게 적용 중인 상태이상 이름 목록. {crew_id: [name, ...]}"""
+    rows = db.execute(text("""
+        SELECT cse.crew_id::text, se.name
+        FROM crew_status_effects cse
+        JOIN status_effects se ON se.id = cse.status_effect_id
+    """)).fetchall()
+    result = {}
+    for crew_id, name in rows:
+        result.setdefault(crew_id, []).append(name)
+    return result
 
 
 def fetch_cargos(db):

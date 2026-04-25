@@ -7,7 +7,7 @@ from admin_pages.admin_api import api
 st.image("eternitas_banner.png", use_container_width=True)
 st.title("작업 관리")
 
-tabs = st.tabs(["세션 목록", "세션 생성", "전조 진행", "본 작업"])
+tabs = st.tabs(["세션 목록", "세션 생성", "전조 진행", "본 작업", "강제 처리"])
 
 _STAT_KO = {
     "health": "체력", "mentality": "정신력", "strength": "근력",
@@ -242,3 +242,46 @@ with tabs[3]:
                 _show_copyable(formatted)
             else:
                 st.error(data)
+
+# ── 강제 처리 ─────────────────────────────────────────────────────────────────
+with tabs[4]:
+    st.subheader("작업 세션 강제 처리")
+    st.caption("화물 등급에 따른 전체 턴 수를 기준으로 세션을 즉시 종료합니다.")
+
+    if not session_map:
+        st.info("진행 중인 세션 없음")
+    else:
+        fc_session_label = st.selectbox("세션 선택", list(session_map.keys()), key="fc_session")
+        fc_sid           = session_map[fc_session_label]
+        fc_cargo_id      = session_cargo[fc_sid]
+
+        cargo_info = next((c for c in cargos_data if c["cargo_id"] == fc_cargo_id), None)
+        if cargo_info:
+            st.info(
+                f"화물: {cargo_info['cargo_name']} ({cargo_info.get('grade', '?')})  "
+                f"| 관측률: {cargo_info.get('observation_rate', 0):.0f}%"
+            )
+
+        fc1, fc2 = st.columns(2)
+        if fc1.button("전체 성공으로 종료", type="primary", key="btn_fc_success"):
+            s, d = api("post", f"/works/sessions/{fc_sid}/force-complete", json={"result": "success"})
+            if s == 200:
+                _show_copyable(
+                    f"■ 작업 강제 성공 처리\n"
+                    f"전체 {d['total_turns']}턴 성공 기록\n"
+                    f"관측률: {d.get('cargo_observation_rate', 0):.0f}%"
+                )
+                st.rerun()
+            else:
+                st.error(d)
+
+        if fc2.button("전체 실패로 종료", key="btn_fc_fail"):
+            s, d = api("post", f"/works/sessions/{fc_sid}/force-complete", json={"result": "fail"})
+            if s == 200:
+                _show_copyable(
+                    f"■ 작업 강제 실패 처리\n"
+                    f"전체 {d['total_turns']}턴 실패 기록"
+                )
+                st.rerun()
+            else:
+                st.error(d)

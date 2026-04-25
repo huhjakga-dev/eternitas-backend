@@ -121,6 +121,28 @@ class StatusEffect(Base):
     created_at             = Column(DateTime, server_default=func.now())
 
 
+class CargoGimmick(Base):
+    """화물 특수 기믹. 작업 세션 중 수동 실행."""
+    __tablename__ = "cargo_gimmicks"
+    id               = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    cargo_id         = Column(UUID(as_uuid=True), ForeignKey("cargos.id"), nullable=False)
+    name             = Column(String, nullable=False)
+    description      = Column(String)
+    # action_type: kill_if_stat | apply_damage | apply_status_effect
+    action_type      = Column(String, nullable=False)
+    # kill_if_stat 전용
+    stat             = Column(String, nullable=True)
+    operator         = Column(String, nullable=True)   # lte / lt / gte / gt / eq
+    threshold        = Column(Integer, nullable=True)
+    # apply_damage 전용
+    amount           = Column(Integer, nullable=True)
+    damage_type      = Column(String, nullable=True)
+    # apply_status_effect 전용
+    status_effect_id = Column(UUID(as_uuid=True), ForeignKey("status_effects.id"), nullable=True)
+    sort_order       = Column(Integer, default=0)
+    created_at       = Column(DateTime, server_default=func.now())
+
+
 class CrewStatusEffect(Base):
     """승무원에게 적용된 상태이상"""
     __tablename__ = "crew_status_effects"
